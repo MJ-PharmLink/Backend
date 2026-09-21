@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: backend
+  config:
+    import: application-secret.yml
+  datasource:
+    url: jdbc:mysql://localhost:3306/pharm_erp?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update   # 개발 초기엔 update, 운영 전환 시 validate로 변경
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: 8080
+
+jwt:
+  expiration: 3600000   # 1시간 (ms 단위)
