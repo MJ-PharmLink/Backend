@@ -197,13 +197,33 @@ public ApiResponse<OrderResponse> createOrder(@AuthenticationPrincipal UserPrinc
 
 **역할별 권한 지정**
 
-명세서의 "권한" 칸에 맞춰 컨트롤러 메서드(또는 클래스)에 `@PreAuthorize`를 붙입니다. 붙이지 않으면 로그인한 사용자 전체가 접근할 수 있습니다.
+명세서 2장 "권한" 칸을 보고 컨트롤러 메서드(또는 클래스)에 `@PreAuthorize(AccessRole.XXX)`를 붙입니다. 문자열을 직접 쓰지 말고 `AccessRole` 상수를 사용해주세요.
+
+| 명세서 권한 | 사용할 상수 |
+|---|---|
+| 관리자 | `AccessRole.ADMIN` |
+| 관리자, 영업 | `AccessRole.ADMIN_SALES` |
+| 관리자, 창고 | `AccessRole.ADMIN_WAREHOUSE` |
+| 관리자, 영업, 창고 / 로그인 사용자 | `AccessRole.ALL` |
 
 ```java
-@PreAuthorize("hasRole('ADMIN')")                    // 관리자만
-@PreAuthorize("hasAnyRole('ADMIN', 'SALES')")        // 관리자, 영업담당
-@PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")    // 관리자, 창고담당
+@PreAuthorize(AccessRole.ADMIN_SALES)   // 거래처 등록: 관리자, 영업
+@PostMapping
+public ApiResponse<PartnerResponse> createPartner(@Valid @RequestBody PartnerCreateRequest request) { ... }
 ```
+
+권한이 없으면 `403 FORBIDDEN`이 자동으로 응답됩니다.
+
+**인증 API (명세서 3장)**
+
+| API | 설명 |
+|---|---|
+| `POST /api/v1/auth/login` | 로그인. access token(1시간)과 refresh token(14일) 발급 |
+| `POST /api/v1/auth/refresh` | refresh token으로 access token 재발급 |
+| `POST /api/v1/auth/logout` | refresh token 폐기 (204) |
+| `GET /api/v1/auth/me` | 내 정보 조회 |
+
+Postman 컬렉션은 `postman/PharmLink-auth.postman_collection.json`에 있습니다. 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
 
 **시간 값**
 

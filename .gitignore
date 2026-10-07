@@ -49,3 +49,10 @@ Thumbs.db
 *.log
 0725*
 id_*
+
+### Postman (관리자 계정 등 민감 정보가 들어가는 환경 변수 파일) ###
+postman/environments/
+postman/globals/
+.postman/
+# Postman 앱(Local View)이 자동 생성하는 컬렉션 사본. 공유용은 postman/*.postman_collection.json 하나만 커밋
+postman/collections/

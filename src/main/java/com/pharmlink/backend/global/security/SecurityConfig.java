@@ -18,7 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-// 역할별 권한은 컨트롤러 메서드에 @PreAuthorize("hasRole('ADMIN')") 처럼 지정한다.
+// 역할별 권한은 컨트롤러 메서드에 @PreAuthorize(AccessRole.ADMIN) 처럼 지정한다.
 @Configuration
 @EnableMethodSecurity
 @RequiredArgsConstructor
