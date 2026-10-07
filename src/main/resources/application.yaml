@@ -15,6 +15,8 @@ spring:
         format_sql: true
         jdbc:
           time_zone: Asia/Seoul   # DB 시간 저장 기준: KST (JDBC URL, Docker TZ와 동일)
+        type:
+          preferred_instant_jdbc_type: TIMESTAMP   # Instant도 위 time_zone(KST) 기준으로 저장 (기본값은 UTC로 저장)
   flyway:
     enabled: true
     locations: classpath:db/migration
