@@ -30,3 +30,4 @@ server:
 
 jwt:
   expiration: 3600000   # 1시간 (ms 단위)
+  refresh-expiration: 1209600000   # refresh token 14일 (ms 단위)

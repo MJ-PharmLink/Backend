@@ -67,7 +67,7 @@ spring:
     password: 본인_MySQL_비밀번호
 
 jwt:
-  secret: "팀에서_정한_JWT_시크릿_키"
+  secret: "팀에서_정한_JWT_시크릿_키"   # 32바이트(영문 32자) 이상, 짧으면 실행 시 오류
 
 admin:
   username: 팀에서_정한_관리자_아이디
@@ -175,11 +175,65 @@ throw new BusinessException(ErrorCode.PARTNER_NOT_FOUND);
 
 `@Valid` 검증 실패(400), enum 값 오류(422), 처리되지 않은 예외(500) 등은 `GlobalExceptionHandler`가 공통 오류 응답으로 변환합니다.
 
+## 인증 / 권한 (Security)
+
+- 모든 API는 `Authorization: Bearer {access_token}` 헤더가 필요합니다. 예외는 `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` 두 개뿐입니다.
+- 토큰이 없거나 만료·위조되면 `401 UNAUTHORIZED`, 역할 권한이 없으면 `403 FORBIDDEN`이 공통 오류 형식으로 응답됩니다. 컨트롤러에서 따로 처리할 필요가 없습니다.
+- 역할은 `ADMIN`(관리자), `SALES`(영업담당), `WAREHOUSE`(창고담당) 3가지입니다.
+
+**로그인 사용자 꺼내기**
+
+access token에 담긴 `user_id`, `role`이 `UserPrincipal`로 들어옵니다. DB 조회 없이 바로 쓸 수 있습니다.
+
+```java
+@PostMapping
+public ApiResponse<OrderResponse> createOrder(@AuthenticationPrincipal UserPrincipal principal,
+                                              @Valid @RequestBody OrderCreateRequest request) {
+    Long userId = principal.userId();   // created_by 등에 사용
+    Role role = principal.role();
+    return ApiResponse.success(orderService.create(userId, request));
+}
+```
+
+**역할별 권한 지정**
+
+명세서 2장 "권한" 칸을 보고 컨트롤러 메서드(또는 클래스)에 `@PreAuthorize(AccessRole.XXX)`를 붙입니다. 문자열을 직접 쓰지 말고 `AccessRole` 상수를 사용해주세요.
+
+| 명세서 권한 | 사용할 상수 |
+|---|---|
+| 관리자 | `AccessRole.ADMIN` |
+| 관리자, 영업 | `AccessRole.ADMIN_SALES` |
+| 관리자, 창고 | `AccessRole.ADMIN_WAREHOUSE` |
+| 관리자, 영업, 창고 / 로그인 사용자 | `AccessRole.ALL` |
+
+```java
+@PreAuthorize(AccessRole.ADMIN_SALES)   // 거래처 등록: 관리자, 영업
+@PostMapping
+public ApiResponse<PartnerResponse> createPartner(@Valid @RequestBody PartnerCreateRequest request) { ... }
+```
+
+권한이 없으면 `403 FORBIDDEN`이 자동으로 응답됩니다.
+
+**인증 API (명세서 3장)**
+
+| API | 설명 |
+|---|---|
+| `POST /api/v1/auth/login` | 로그인. access token(1시간)과 refresh token(14일) 발급 |
+| `POST /api/v1/auth/refresh` | refresh token으로 access token 재발급 |
+| `POST /api/v1/auth/logout` | refresh token 폐기 (204) |
+| `GET /api/v1/auth/me` | 내 정보 조회 |
+
+Postman 컬렉션은 `postman/PharmLink-auth.postman_collection.json`에 있습니다. 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
+
+**시간 값**
+
+`BaseEntity`의 `created_at`, `updated_at`과 엔티티의 일시 필드는 `Instant`를 사용합니다. DB에는 KST로 저장되고, 응답은 명세서 1.5대로 UTC(`2026-09-10T05:00:00Z`)로 나갑니다. 날짜만 필요한 필드(유통기한, 매입일 등)는 `LocalDate`를 사용합니다.
+
 ## 브랜치 전략
 
 - `main`: 배포용 (직접 커밋 금지)
 - `dev`: 개발 통합 브랜치
-- `feature/{담당자}-{기능명}`: 각자 기능 개발 브랜치 (예: `feature/nirey-auth`)
+- `feat/{기능명}`: 기능 개발 브랜치 (예: `feat/auth`, `feat/partner`, `feat/order`)
 
 기능 개발 완료 후 `dev` 브랜치로 Pull Request를 올려서 팀원 리뷰 후 머지합니다.
 
