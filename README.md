@@ -67,7 +67,7 @@ spring:
     password: 본인_MySQL_비밀번호
 
 jwt:
-  secret: "팀에서_정한_JWT_시크릿_키"
+  secret: "팀에서_정한_JWT_시크릿_키"   # 32바이트(영문 32자) 이상, 짧으면 실행 시 오류
 
 admin:
   username: 팀에서_정한_관리자_아이디
@@ -175,11 +175,45 @@ throw new BusinessException(ErrorCode.PARTNER_NOT_FOUND);
 
 `@Valid` 검증 실패(400), enum 값 오류(422), 처리되지 않은 예외(500) 등은 `GlobalExceptionHandler`가 공통 오류 응답으로 변환합니다.
 
+## 인증 / 권한 (Security)
+
+- 모든 API는 `Authorization: Bearer {access_token}` 헤더가 필요합니다. 예외는 `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh` 두 개뿐입니다.
+- 토큰이 없거나 만료·위조되면 `401 UNAUTHORIZED`, 역할 권한이 없으면 `403 FORBIDDEN`이 공통 오류 형식으로 응답됩니다. 컨트롤러에서 따로 처리할 필요가 없습니다.
+- 역할은 `ADMIN`(관리자), `SALES`(영업담당), `WAREHOUSE`(창고담당) 3가지입니다.
+
+**로그인 사용자 꺼내기**
+
+access token에 담긴 `user_id`, `role`이 `UserPrincipal`로 들어옵니다. DB 조회 없이 바로 쓸 수 있습니다.
+
+```java
+@PostMapping
+public ApiResponse<OrderResponse> createOrder(@AuthenticationPrincipal UserPrincipal principal,
+                                              @Valid @RequestBody OrderCreateRequest request) {
+    Long userId = principal.userId();   // created_by 등에 사용
+    Role role = principal.role();
+    return ApiResponse.success(orderService.create(userId, request));
+}
+```
+
+**역할별 권한 지정**
+
+명세서의 "권한" 칸에 맞춰 컨트롤러 메서드(또는 클래스)에 `@PreAuthorize`를 붙입니다. 붙이지 않으면 로그인한 사용자 전체가 접근할 수 있습니다.
+
+```java
+@PreAuthorize("hasRole('ADMIN')")                    // 관리자만
+@PreAuthorize("hasAnyRole('ADMIN', 'SALES')")        // 관리자, 영업담당
+@PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE')")    // 관리자, 창고담당
+```
+
+**시간 값**
+
+`BaseEntity`의 `created_at`, `updated_at`과 엔티티의 일시 필드는 `Instant`를 사용합니다. DB에는 KST로 저장되고, 응답은 명세서 1.5대로 UTC(`2026-09-10T05:00:00Z`)로 나갑니다. 날짜만 필요한 필드(유통기한, 매입일 등)는 `LocalDate`를 사용합니다.
+
 ## 브랜치 전략
 
 - `main`: 배포용 (직접 커밋 금지)
 - `dev`: 개발 통합 브랜치
-- `feature/{담당자}-{기능명}`: 각자 기능 개발 브랜치 (예: `feature/nirey-auth`)
+- `feat/{기능명}`: 기능 개발 브랜치 (예: `feat/auth`, `feat/partner`, `feat/order`)
 
 기능 개발 완료 후 `dev` 브랜치로 Pull Request를 올려서 팀원 리뷰 후 머지합니다.
 
