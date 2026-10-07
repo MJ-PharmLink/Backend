@@ -1,3 +1,11 @@
+package com.pharmlink.backend.global.response;
+
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.Instant;
+import java.util.UUID;
+
 @Getter
 @Builder
 public class Meta {
