@@ -1,0 +1,1099 @@
+{
+  "info": {
+    "name": "PharmLink - 회사 정보 API (feat/company)",
+    "description": "API 명세서 13장 회사 정보 조회·수정(13.1~13.2) 테스트. Collection Runner로 위에서부터 순서대로 한 번에 실행하세요(앞 요청이 저장한 값을 뒤 요청이 사용합니다). 실행 전 admin_username, admin_password가 들어 있는 Environment를 선택하세요. 관리자 계정 정보는 이 컬렉션 파일에 넣지 마세요(git에 올라갑니다). 테스트 중 회사 정보를 바꾸지만 마지막 '원래 값으로 되돌리기'에서 처음 값으로 돌려놓습니다. 실행할 때마다 테스트 계정 2개(SALES·WAREHOUSE)가 생기고 마지막에 비활성화됩니다. 회사 정보 행이 없을 때의 404 COMPANY_NOT_FOUND는 DB 행을 지워야 해서 이 컬렉션에서 확인하지 않습니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. 준비",
+      "item": [
+        {
+          "name": "관리자 로그인 → 200 (관리자 토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{admin_username}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"run_id\", String(Date.now()));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"access_token\", body.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SALES 테스트 계정 생성 → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"password123!\",\n  \"name\": \"테스트 SALES\",\n  \"role\": \"SALES\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"sales_user_id\", body.data.user_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WAREHOUSE 테스트 계정 생성 → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_warehouse_{{run_id}}\",\n  \"password\": \"password123!\",\n  \"name\": \"테스트 WAREHOUSE\",\n  \"role\": \"WAREHOUSE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"warehouse_user_id\", body.data.user_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SALES 계정 로그인 → 200 (토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"sales_token\", body.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WAREHOUSE 계정 로그인 → 200 (토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_warehouse_{{run_id}}\",\n  \"password\": \"password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"warehouse_token\", body.data.access_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. 회사 정보 조회 (13.1)",
+      "item": [
+        {
+          "name": "관리자 조회 → 200 (원래 값 저장)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "description": "테스트가 끝나면 이 요청에서 저장한 원래 값으로 회사 정보를 되돌립니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"응답 필드 (snake_case)\", () => pm.expect(body.data).to.have.keys(\"company_id\",\"name\",\"business_number\",\"representative_name\",\"wholesale_license_number\",\"address\",\"phone\",\"fax\",\"email\",\"updated_at\"));",
+                  "pm.test(\"company_id = 1\", () => pm.expect(body.data.company_id).to.eql(1));",
+                  "pm.test(\"updated_at은 UTC(Z)\", () => pm.expect(body.data.updated_at).to.match(/Z$/));",
+                  "// 마지막 \"원래 값으로 되돌리기\"에서 쓰려고 지금 값을 저장해 둔다",
+                  "const { company_id, updated_at, ...original } = body.data;",
+                  "pm.collectionVariables.set(\"company_original\", JSON.stringify(original));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "영업 계정 조회 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"company_id = 1\", () => pm.expect(body.data.company_id).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "창고 계정 조회 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"company_id = 1\", () => pm.expect(body.data.company_id).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - 토큰 없음 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(body.error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. 회사 정보 수정 (13.2)",
+      "item": [
+        {
+          "name": "전체 교체 성공 (관리자) → 200",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"응답 필드\", () => pm.expect(body.data).to.have.keys(\"company_id\",\"name\",\"business_number\",\"representative_name\",\"wholesale_license_number\",\"address\",\"phone\",\"fax\",\"email\",\"updated_at\"));",
+                  "pm.test(\"보낸 값으로 바뀜\", () => { pm.expect(body.data.name).to.eql(\"팜링크약품 테스트\"); pm.expect(body.data.business_number).to.eql(\"123-45-67890\"); pm.expect(body.data.email).to.eql(\"qa@pharmlink.test\"); });",
+                  "pm.test(\"updated_at은 UTC(Z)\", () => pm.expect(body.data.updated_at).to.match(/Z$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정한 값이 조회에도 반영 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"조회 결과도 바뀐 값\", () => { pm.expect(body.data.name).to.eql(\"팜링크약품 테스트\"); pm.expect(body.data.fax).to.eql(\"02-000-0001\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "선택 필드 생략 → 200 (null로 저장)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"wholesale_license_number, fax, email = null (전체 교체)\", () => { pm.expect(body.data.wholesale_license_number).to.be.null; pm.expect(body.data.fax).to.be.null; pm.expect(body.data.email).to.be.null; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "선택 필드 빈 문자열 → 200 (null로 저장)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"wholesale_license_number\": \"\",\n  \"fax\": \"\",\n  \"email\": \"  \"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"빈 값은 null\", () => { pm.expect(body.data.wholesale_license_number).to.be.null; pm.expect(body.data.fax).to.be.null; pm.expect(body.data.email).to.be.null; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 필수값(name) 누락 → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"details에 name\", () => pm.expect(body.error.details.map(d => d.field)).to.include(\"name\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 필수값(phone) 빈 문자열 → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"details에 phone\", () => pm.expect(body.error.details.map(d => d.field)).to.include(\"phone\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 사업자등록번호 형식 오류 → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"1234567890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"details에 business_number\", () => pm.expect(body.error.details.map(d => d.field)).to.include(\"business_number\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 이메일 형식 오류 → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"not-an-email\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"details에 email\", () => pm.expect(body.error.details.map(d => d.field)).to.include(\"email\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 영업 계정 → 403",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = FORBIDDEN\", () => pm.expect(body.error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 창고 계정 → 403",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = FORBIDDEN\", () => pm.expect(body.error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 토큰 없음 → 401",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"팜링크약품 테스트\",\n  \"business_number\": \"123-45-67890\",\n  \"representative_name\": \"테스트대표\",\n  \"wholesale_license_number\": \"제2026-테스트-00001호\",\n  \"address\": \"서울시 테스트구 테스트로 1\",\n  \"phone\": \"02-000-0000\",\n  \"fax\": \"02-000-0001\",\n  \"email\": \"qa@pharmlink.test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(body.error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. 정리",
+      "item": [
+        {
+          "name": "원래 값으로 되돌리기 → 200",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/company",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "company"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{{company_original}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "2번 폴더 첫 요청에서 저장한 원래 회사 정보로 다시 PUT 합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "const original = JSON.parse(pm.collectionVariables.get(\"company_original\"));",
+                  "pm.test(\"처음 조회한 값과 같음\", () => Object.keys(original).forEach(k => pm.expect(body.data[k]).to.eql(original[k])));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SALES 테스트 계정 비활성화 → 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{sales_user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{sales_user_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WAREHOUSE 테스트 계정 비활성화 → 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{warehouse_user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{warehouse_user_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "run_id",
+      "value": ""
+    },
+    {
+      "key": "sales_user_id",
+      "value": ""
+    },
+    {
+      "key": "warehouse_user_id",
+      "value": ""
+    },
+    {
+      "key": "sales_token",
+      "value": ""
+    },
+    {
+      "key": "warehouse_token",
+      "value": ""
+    },
+    {
+      "key": "company_original",
+      "value": ""
+    }
+  ]
+}
