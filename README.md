@@ -236,7 +236,25 @@ public ApiResponse<PartnerResponse> createPartner(@Valid @RequestBody PartnerCre
 
 관리자는 본인 계정의 역할 변경과 비활성화(PATCH `role`, `is_active: false`, DELETE)를 할 수 없습니다(422). 활성 관리자가 0명이 되는 것을 막기 위한 규칙이며, 본인 이름·비밀번호 수정은 가능합니다.
 
-Postman 컬렉션은 `postman/` 폴더에 기능별로 있습니다(`PharmLink-auth`, `PharmLink-user`). 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
+**거래처 관리 API**
+
+| API | 권한 | 설명 |
+|---|---|---|
+| `GET /api/v1/business-partners` | 관리자, 영업, 창고 | 거래처 목록. `partner_type`, `keyword`(거래처명·사업자등록번호), `include_inactive`(기본 false), 페이지네이션 |
+| `POST /api/v1/business-partners` | 관리자, 영업 | 거래처 등록 (201). 사업자등록번호 `000-00-00000` 형식, 중복 409 |
+| `GET /api/v1/business-partners/{partner_id}` | 관리자, 영업, 창고 | 거래처 상세 (비활성 거래처도 조회) |
+| `PUT /api/v1/business-partners/{partner_id}` | 관리자, 영업 | 거래처 정보 전체 교체. `partner_type`은 변경 불가 |
+
+다른 도메인(상품·주문·매입)에서 거래처를 연결할 때는 `PartnerService`의 공용 메서드를 사용하세요.
+
+```java
+BusinessPartner supplier = partnerService.getActiveSupplier(request.supplierId()); // 상품 등록, 매입 등록
+BusinessPartner customer = partnerService.getActiveCustomer(request.partnerId());  // 주문 등록
+```
+
+없는 거래처는 404 `PARTNER_NOT_FOUND`, 유형이 다르면 422 `INVALID_PARTNER_TYPE`, 비활성이면 409 `PARTNER_INACTIVE`를 자동으로 던집니다.
+
+Postman 컬렉션은 `postman/` 폴더에 기능별로 있습니다(`PharmLink-auth`, `PharmLink-user`, `PharmLink-partner`). 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
 
 **시간 값**
 

@@ -1,0 +1,1595 @@
+{
+  "info": {
+    "name": "PharmLink - 거래처 관리 API (feat/partner)",
+    "description": "API 명세서 5장 거래처 목록·등록·상세·수정(5.1~5.4) 테스트. Collection Runner로 위에서부터 순서대로 한 번에 실행하세요(앞 요청이 저장한 값을 뒤 요청이 사용합니다). 실행 전 admin_username, admin_password가 들어 있는 Environment를 선택하세요. 관리자 계정 정보는 이 컬렉션 파일에 넣지 마세요(git에 올라갑니다). 실행할 때마다 테스트 거래처 2개(공급처·고객사)와 테스트 계정 2개(SALES·WAREHOUSE, 마지막에 비활성화)가 생깁니다.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "1. 준비",
+      "item": [
+        {
+          "name": "관리자 로그인 → 200 (관리자 토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{admin_username}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "실행할 때마다 새 거래처명·사업자등록번호를 만들어서 다시 실행해도 409가 나지 않습니다."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = n => Array.from({length: n}, () => Math.floor(Math.random() * 10)).join(\"\");",
+                  "pm.collectionVariables.set(\"run_id\", String(Date.now()));",
+                  "pm.collectionVariables.set(\"supplier_bn\", \"9\" + d(2) + \"-\" + d(2) + \"-\" + d(5));",
+                  "pm.collectionVariables.set(\"customer_bn\", \"8\" + d(2) + \"-\" + d(2) + \"-\" + d(5));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"access_token\", body.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SALES 테스트 계정 생성 → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"password123!\",\n  \"name\": \"테스트 SALES\",\n  \"role\": \"SALES\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"sales_user_id\", body.data.user_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WAREHOUSE 테스트 계정 생성 → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_warehouse_{{run_id}}\",\n  \"password\": \"password123!\",\n  \"name\": \"테스트 WAREHOUSE\",\n  \"role\": \"WAREHOUSE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"warehouse_user_id\", body.data.user_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SALES 계정 로그인 → 200 (토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"sales_token\", body.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WAREHOUSE 계정 로그인 → 200 (토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_warehouse_{{run_id}}\",\n  \"password\": \"password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"warehouse_token\", body.data.access_token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. 거래처 등록 (5.2)",
+      "item": [
+        {
+          "name": "공급처 등록 성공 (관리자) → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"응답 필드 (snake_case)\", () => pm.expect(body.data).to.have.keys(\"partner_id\",\"partner_type\",\"name\",\"business_number\",\"phone\",\"address\",\"manager_name\",\"is_active\",\"created_at\",\"updated_at\"));",
+                  "pm.test(\"partner_type = SUPPLIER, is_active = true\", () => { pm.expect(body.data.partner_type).to.eql(\"SUPPLIER\"); pm.expect(body.data.is_active).to.be.true; });",
+                  "pm.test(\"created_at은 UTC(Z)\", () => pm.expect(body.data.created_at).to.match(/Z$/));",
+                  "pm.collectionVariables.set(\"supplier_id\", body.data.partner_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "고객사 등록 성공 (영업, 담당자명 생략) → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"CUSTOMER\",\n  \"name\": \"테스트약국_{{run_id}}\",\n  \"business_number\": \"{{customer_bn}}\",\n  \"phone\": \"02-1234-5678\",\n  \"address\": \"서울시 강남구\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"partner_type = CUSTOMER\", () => pm.expect(body.data.partner_type).to.eql(\"CUSTOMER\"));",
+                  "pm.test(\"manager_name 생략 시 null\", () => pm.expect(body.data.manager_name).to.be.null);",
+                  "pm.collectionVariables.set(\"customer_id\", body.data.partner_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - 사업자등록번호 중복 → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"중복 테스트\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = DUPLICATE_BUSINESS_NUMBER\", () => pm.expect(body.error.code).to.eql(\"DUPLICATE_BUSINESS_NUMBER\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - 사업자등록번호 형식 오류 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"1234567890\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"details에 business_number\", () => pm.expect(body.error.details.map(d => d.field)).to.include(\"business_number\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - 필수값(phone) 누락 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));",
+                  "pm.test(\"details에 phone\", () => pm.expect(body.error.details.map(d => d.field)).to.include(\"phone\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - partner_type 누락 → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - partner_type 값 오류 → 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"VENDOR\",\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNPROCESSABLE_ENTITY\", () => pm.expect(body.error.code).to.eql(\"UNPROCESSABLE_ENTITY\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - 창고 계정 → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"000-00-00001\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = FORBIDDEN\", () => pm.expect(body.error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "등록 실패 - 토큰 없음 → 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"테스트제약_{{run_id}}\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시 분당구\",\n  \"manager_name\": \"이대리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(body.error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. 거래처 목록 (5.1)",
+      "item": [
+        {
+          "name": "목록 조회 성공 → 200 (기본값)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"pagination 기본값 page=1, page_size=20\", () => { pm.expect(body.pagination.page).to.eql(1); pm.expect(body.pagination.page_size).to.eql(20); });",
+                  "pm.test(\"기본은 활성 거래처만\", () => body.data.forEach(p => pm.expect(p.is_active).to.be.true));",
+                  "pm.test(\"목록 항목 필드\", () => body.data.forEach(p => pm.expect(p).to.have.keys(\"partner_id\",\"partner_type\",\"name\",\"business_number\",\"phone\",\"address\",\"manager_name\",\"is_active\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "partner_type=SUPPLIER 필터 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners?partner_type=SUPPLIER&page_size=100",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ],
+              "query": [
+                {
+                  "key": "partner_type",
+                  "value": "SUPPLIER"
+                },
+                {
+                  "key": "page_size",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"모두 SUPPLIER\", () => body.data.forEach(p => pm.expect(p.partner_type).to.eql(\"SUPPLIER\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "keyword로 거래처명 검색 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners?keyword=테스트제약_{{run_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "테스트제약_{{run_id}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"방금 등록한 공급처 1건\", () => { pm.expect(body.pagination.total_count).to.eql(1); pm.expect(body.data[0].partner_id).to.eql(pm.collectionVariables.get(\"supplier_id\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "keyword로 사업자등록번호 검색 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners?keyword={{customer_bn}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "{{customer_bn}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"방금 등록한 고객사 1건\", () => { pm.expect(body.pagination.total_count).to.eql(1); pm.expect(body.data[0].business_number).to.eql(pm.collectionVariables.get(\"customer_bn\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "창고 계정도 목록 조회 가능 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "목록 조회 실패 - partner_type 값 오류 → 422",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners?partner_type=VENDOR",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ],
+              "query": [
+                {
+                  "key": "partner_type",
+                  "value": "VENDOR"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNPROCESSABLE_ENTITY\", () => pm.expect(body.error.code).to.eql(\"UNPROCESSABLE_ENTITY\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "목록 조회 실패 - 토큰 없음 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(body.error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. 거래처 상세 (5.3)",
+      "item": [
+        {
+          "name": "상세 조회 성공 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"상세 필드\", () => pm.expect(body.data).to.have.keys(\"partner_id\",\"partner_type\",\"name\",\"business_number\",\"phone\",\"address\",\"manager_name\",\"is_active\",\"created_at\",\"updated_at\"));",
+                  "pm.test(\"등록한 값 그대로\", () => { pm.expect(body.data.business_number).to.eql(pm.collectionVariables.get(\"supplier_bn\")); pm.expect(body.data.manager_name).to.eql(\"이대리\"); });",
+                  "pm.test(\"updated_at은 UTC(Z)\", () => pm.expect(body.data.updated_at).to.match(/Z$/));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "창고 계정도 상세 조회 가능 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "상세 조회 실패 - 없는 거래처 → 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/999999999",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "999999999"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = PARTNER_NOT_FOUND\", () => pm.expect(body.error.code).to.eql(\"PARTNER_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. 거래처 수정 (5.4)",
+      "item": [
+        {
+          "name": "전체 교체 성공 → 200 (같은 사업자등록번호 유지)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-0000\",\n  \"address\": \"경기도 성남시 분당구 (수정된 주소)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"값이 바뀜\", () => { pm.expect(body.data.phone).to.eql(\"02-9876-0000\"); pm.expect(body.data.address).to.contain(\"수정된 주소\"); });",
+                  "pm.test(\"보내지 않은 manager_name은 null (전체 교체)\", () => pm.expect(body.data.manager_name).to.be.null);",
+                  "pm.test(\"partner_type 유지\", () => pm.expect(body.data.partner_type).to.eql(\"SUPPLIER\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "partner_type을 보내도 변경 안 됨 → 200",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-0000\",\n  \"address\": \"경기도 성남시 분당구 (수정된 주소)\",\n  \"partner_type\": \"CUSTOMER\",\n  \"manager_name\": \"김과장\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"partner_type = SUPPLIER 그대로\", () => pm.expect(body.data.partner_type).to.eql(\"SUPPLIER\"));",
+                  "pm.test(\"manager_name 반영\", () => pm.expect(body.data.manager_name).to.eql(\"김과장\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "영업 계정으로 수정 → 200",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트약국_{{run_id}}\",\n  \"business_number\": \"{{customer_bn}}\",\n  \"phone\": \"02-1234-9999\",\n  \"address\": \"서울시 강남구\",\n  \"manager_name\": \"박약사\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"phone 반영\", () => pm.expect(body.data.phone).to.eql(\"02-1234-9999\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 다른 거래처의 사업자등록번호 → 409",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"{{customer_bn}}\",\n  \"phone\": \"02-9876-0000\",\n  \"address\": \"경기도 성남시 분당구 (수정된 주소)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = DUPLICATE_BUSINESS_NUMBER\", () => pm.expect(body.error.code).to.eql(\"DUPLICATE_BUSINESS_NUMBER\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 사업자등록번호 형식 오류 → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"123-456-7890\",\n  \"phone\": \"02-9876-0000\",\n  \"address\": \"경기도 성남시 분당구 (수정된 주소)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 필수값(address) 누락 → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-0000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 없는 거래처 → 404",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/999999999",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "999999999"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"000-00-00002\",\n  \"phone\": \"02-9876-0000\",\n  \"address\": \"경기도 성남시 분당구 (수정된 주소)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = PARTNER_NOT_FOUND\", () => pm.expect(body.error.code).to.eql(\"PARTNER_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "수정 실패 - 창고 계정 → 403",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"테스트제약_{{run_id}} (수정)\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-0000\",\n  \"address\": \"경기도 성남시 분당구 (수정된 주소)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = FORBIDDEN\", () => pm.expect(body.error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. 정리",
+      "item": [
+        {
+          "name": "SALES 테스트 계정 비활성화 → 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{sales_user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{sales_user_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WAREHOUSE 테스트 계정 비활성화 → 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{warehouse_user_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{warehouse_user_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "run_id",
+      "value": ""
+    },
+    {
+      "key": "supplier_bn",
+      "value": ""
+    },
+    {
+      "key": "customer_bn",
+      "value": ""
+    },
+    {
+      "key": "sales_user_id",
+      "value": ""
+    },
+    {
+      "key": "warehouse_user_id",
+      "value": ""
+    },
+    {
+      "key": "sales_token",
+      "value": ""
+    },
+    {
+      "key": "warehouse_token",
+      "value": ""
+    },
+    {
+      "key": "supplier_id",
+      "value": ""
+    },
+    {
+      "key": "customer_id",
+      "value": ""
+    }
+  ]
+}
