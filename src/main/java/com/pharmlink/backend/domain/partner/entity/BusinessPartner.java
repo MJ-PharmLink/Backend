@@ -76,4 +76,8 @@ public class BusinessPartner extends BaseEntity {
         this.address = address;
         this.managerName = managerName;
     }
+
+    public void deactivate() {
+        this.isActive = false;
+    }
 }
