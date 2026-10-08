@@ -5,6 +5,7 @@ import com.pharmlink.backend.global.security.handler.JwtAuthenticationEntryPoint
 import com.pharmlink.backend.global.security.jwt.JwtAuthenticationFilter;
 import com.pharmlink.backend.global.security.jwt.JwtProvider;
 import jakarta.servlet.DispatcherType;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,12 +18,18 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 // 역할별 권한은 컨트롤러 메서드에 @PreAuthorize(AccessRole.ADMIN) 처럼 지정한다.
 @Configuration
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+
+    // 로컬 프론트 개발 서버(Vite). 배포 주소가 정해지면 여기에 추가한다.
+    private static final List<String> ALLOWED_ORIGINS = List.of("http://localhost:5173");
 
     private final JwtProvider jwtProvider;
     private final JwtAuthenticationEntryPoint authenticationEntryPoint;
@@ -31,6 +38,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -46,6 +54,22 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtProvider), UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    // 토큰은 Authorization 헤더로 주고받으므로 쿠키(allowCredentials)는 허용하지 않는다.
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(ALLOWED_ORIGINS);
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // 납품서 PDF 다운로드 시 파일명을 프론트에서 읽을 수 있게 노출
+        config.setExposedHeaders(List.of("Content-Disposition"));
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", config);
+        return source;
     }
 
     @Bean
