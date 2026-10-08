@@ -258,7 +258,20 @@ BusinessPartner customer = partnerService.getActiveCustomer(request.partnerId())
 
 거래처 비활성화와 거래 이력은 `orders`, `deliveries`, `sales`, `purchases` 테이블을 native query로 직접 읽습니다(`NativePartnerTransactionReader`, DB 설계서 6장 `v_partner_transactions`). 주문·납품·매출·매입 엔티티가 없어도 동작하며, 해당 테이블의 컬럼명이나 상태 값(`PENDING`, `WAITING`, `SHIPPED`)이 바뀌면 이 클래스도 함께 수정해야 합니다.
 
-Postman 컬렉션은 `postman/` 폴더에 기능별로 있습니다(`PharmLink-auth`, `PharmLink-user`, `PharmLink-partner`). 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
+**회사 정보 API**
+
+| API | 권한 | 설명 |
+|---|---|---|
+| `GET /api/v1/company` | 관리자, 영업, 창고 | 우리 회사(`company_id = 1`) 정보 조회. 행이 없으면 404 `COMPANY_NOT_FOUND` |
+| `PUT /api/v1/company` | 관리자 | 회사 정보 전체 교체. `name`, `business_number`(`000-00-00000`), `representative_name`, `address`, `phone` 필수. `wholesale_license_number`, `fax`, `email`은 생략하거나 빈 값이면 null |
+
+납품서 PDF 등 다른 도메인에서 공급자(우리 회사) 정보가 필요하면 `CompanyService`의 공용 메서드를 사용하세요.
+
+```java
+CompanyResponse company = companyService.getCompany(); // 상호, 사업자등록번호, 대표자, 주소, 연락처 등
+```
+
+Postman 컬렉션은 `postman/` 폴더에 기능별로 있습니다(`PharmLink-auth`, `PharmLink-user`, `PharmLink-partner`, `PharmLink-company`). 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
 
 **시간 값**
 
