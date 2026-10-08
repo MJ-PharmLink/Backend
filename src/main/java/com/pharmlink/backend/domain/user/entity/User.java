@@ -55,4 +55,25 @@ public class User extends BaseEntity {
         user.isActive = true;
         return user;
     }
+
+    public void changeName(String name) {
+        this.name = name;
+    }
+
+    public void changeRole(Role role) {
+        this.role = role;
+    }
+
+    // encodedPassword는 반드시 PasswordEncoder로 인코딩한 값을 넘긴다
+    public void changePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
+
+    public void activate() {
+        this.isActive = true;
+    }
+
+    public void deactivate() {
+        this.isActive = false;
+    }
 }
