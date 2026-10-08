@@ -223,7 +223,20 @@ public ApiResponse<PartnerResponse> createPartner(@Valid @RequestBody PartnerCre
 | `POST /api/v1/auth/logout` | refresh token 폐기 (204) |
 | `GET /api/v1/auth/me` | 내 정보 조회 |
 
-Postman 컬렉션은 `postman/PharmLink-auth.postman_collection.json`에 있습니다. 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
+**사용자 관리 API (관리자 전용)**
+
+| API | 설명 |
+|---|---|
+| `GET /api/v1/users` | 사용자 목록. `role` 필터, `include_inactive`(기본 false), 페이지네이션 |
+| `POST /api/v1/users` | 계정 생성 (201). 비밀번호 8~64자, 중복 아이디 409, role 값 오류 422 |
+| `PATCH /api/v1/users/{user_id}` | name, role, is_active, password 중 보낸 값만 수정 |
+| `DELETE /api/v1/users/{user_id}` | 비활성화 (204) |
+
+비밀번호·역할 변경, 비활성화 시 해당 사용자의 refresh token이 같은 트랜잭션에서 폐기됩니다(`AuthService.revokeRefreshToken`). 이미 발급된 access token은 만료(1시간)까지 유효합니다.
+
+관리자는 본인 계정의 역할 변경과 비활성화(PATCH `role`, `is_active: false`, DELETE)를 할 수 없습니다(422). 활성 관리자가 0명이 되는 것을 막기 위한 규칙이며, 본인 이름·비밀번호 수정은 가능합니다.
+
+Postman 컬렉션은 `postman/` 폴더에 기능별로 있습니다(`PharmLink-auth`, `PharmLink-user`). 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
 
 **시간 값**
 
