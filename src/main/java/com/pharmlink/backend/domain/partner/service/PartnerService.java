@@ -3,10 +3,13 @@ package com.pharmlink.backend.domain.partner.service;
 import com.pharmlink.backend.domain.partner.dto.PartnerCreateRequest;
 import com.pharmlink.backend.domain.partner.dto.PartnerDetailResponse;
 import com.pharmlink.backend.domain.partner.dto.PartnerResponse;
+import com.pharmlink.backend.domain.partner.dto.PartnerTransactionResponse;
+import com.pharmlink.backend.domain.partner.dto.PartnerTransactionType;
 import com.pharmlink.backend.domain.partner.dto.PartnerUpdateRequest;
 import com.pharmlink.backend.domain.partner.entity.BusinessPartner;
 import com.pharmlink.backend.domain.partner.entity.PartnerType;
 import com.pharmlink.backend.domain.partner.repository.BusinessPartnerRepository;
+import com.pharmlink.backend.domain.partner.repository.PartnerTransactionReader;
 import com.pharmlink.backend.global.common.PageRequestFactory;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
@@ -17,12 +20,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
 @Service
 @Transactional(readOnly = true)
 @RequiredArgsConstructor
 public class PartnerService {
 
+    // 조회 기간(start_date, end_date)은 한국 날짜 기준
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     private final BusinessPartnerRepository partnerRepository;
+    private final PartnerTransactionReader transactionReader;
 
     // 거래처 목록 (등록 순)
     public Page<PartnerResponse> getPartners(Integer page, Integer pageSize, PartnerType partnerType,
@@ -62,7 +73,34 @@ public class PartnerService {
         return PartnerDetailResponse.from(partnerRepository.saveAndFlush(partner));
     }
 
-    // ===== 팀 공용 메서드: 상품·주문·매입 등록 시 거래처 검증 =====
+    // 거래처 삭제(비활성화): 이미 비활성이면 변경 없이 종료
+    // 승인 대기 주문(PENDING) 또는 납품 완료 전 납품(WAITING, SHIPPED)이 있으면 409 PARTNER_IN_USE
+    @Transactional
+    public void deactivatePartner(Long partnerId) {
+        BusinessPartner partner = findPartner(partnerId);
+        if (!partner.isActive()) {
+            return;
+        }
+        if (transactionReader.hasInProgressTransaction(partnerId)) {
+            throw new BusinessException(ErrorCode.PARTNER_IN_USE);
+        }
+        partner.deactivate();
+    }
+
+    // 거래처별 거래 이력 (최신순). 기간은 KST 시작일 00:00 ~ 종료일 다음 날 00:00 전까지
+    public Page<PartnerTransactionResponse> getTransactions(Long partnerId, PartnerTransactionType type,
+                                                            LocalDate startDate, LocalDate endDate,
+                                                            Integer page, Integer pageSize) {
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new BusinessException(ErrorCode.INVALID_DATE_RANGE);
+        }
+        findPartner(partnerId);
+        Instant from = startDate == null ? null : startDate.atStartOfDay(KST).toInstant();
+        Instant to = endDate == null ? null : endDate.plusDays(1).atStartOfDay(KST).toInstant();
+        return transactionReader.findTransactions(partnerId, type, from, to, PageRequestFactory.of(page, pageSize));
+    }
+
+    // ===== 상품·주문·매입 등록 시 거래처 검증 =====
 
     // 활성 공급처 조회 (상품 등록·공급처 변경, 매입 등록에서 사용)
     // 없음 404 PARTNER_NOT_FOUND → 공급처 아님 422 INVALID_PARTNER_TYPE → 비활성 409 PARTNER_INACTIVE

@@ -244,6 +244,8 @@ public ApiResponse<PartnerResponse> createPartner(@Valid @RequestBody PartnerCre
 | `POST /api/v1/business-partners` | 관리자, 영업 | 거래처 등록 (201). 사업자등록번호 `000-00-00000` 형식, 중복 409 |
 | `GET /api/v1/business-partners/{partner_id}` | 관리자, 영업, 창고 | 거래처 상세 (비활성 거래처도 조회) |
 | `PUT /api/v1/business-partners/{partner_id}` | 관리자, 영업 | 거래처 정보 전체 교체. `partner_type`은 변경 불가 |
+| `DELETE /api/v1/business-partners/{partner_id}` | 관리자, 영업 | 거래처 비활성화 (204). 승인 대기 주문(`PENDING`)이나 납품 완료 전 납품(`WAITING`, `SHIPPED`)이 있으면 409 `PARTNER_IN_USE`, 이미 비활성이면 변경 없이 204 |
+| `GET /api/v1/business-partners/{partner_id}/transactions` | 관리자, 영업 | 거래 이력(주문·매출·매입) 최신순. `type`, `start_date`·`end_date`(KST 날짜, 시작일 > 종료일이면 422 `INVALID_DATE_RANGE`), 페이지네이션 |
 
 다른 도메인(상품·주문·매입)에서 거래처를 연결할 때는 `PartnerService`의 공용 메서드를 사용하세요.
 
@@ -253,6 +255,8 @@ BusinessPartner customer = partnerService.getActiveCustomer(request.partnerId())
 ```
 
 없는 거래처는 404 `PARTNER_NOT_FOUND`, 유형이 다르면 422 `INVALID_PARTNER_TYPE`, 비활성이면 409 `PARTNER_INACTIVE`를 자동으로 던집니다.
+
+거래처 비활성화와 거래 이력은 `orders`, `deliveries`, `sales`, `purchases` 테이블을 native query로 직접 읽습니다(`NativePartnerTransactionReader`, DB 설계서 6장 `v_partner_transactions`). 주문·납품·매출·매입 엔티티가 없어도 동작하며, 해당 테이블의 컬럼명이나 상태 값(`PENDING`, `WAITING`, `SHIPPED`)이 바뀌면 이 클래스도 함께 수정해야 합니다.
 
 Postman 컬렉션은 `postman/` 폴더에 기능별로 있습니다(`PharmLink-auth`, `PharmLink-user`, `PharmLink-partner`). 관리자 아이디·비밀번호는 컬렉션이 아니라 Postman Environment(`admin_username`, `admin_password`)에 넣어주세요. `postman/environments/`는 `.gitignore` 처리되어 있습니다.
 

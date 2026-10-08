@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "PharmLink - 거래처 관리 API (feat/partner)",
-    "description": "API 명세서 5장 거래처 목록·등록·상세·수정(5.1~5.4) 테스트. Collection Runner로 위에서부터 순서대로 한 번에 실행하세요(앞 요청이 저장한 값을 뒤 요청이 사용합니다). 실행 전 admin_username, admin_password가 들어 있는 Environment를 선택하세요. 관리자 계정 정보는 이 컬렉션 파일에 넣지 마세요(git에 올라갑니다). 실행할 때마다 테스트 거래처 2개(공급처·고객사)와 테스트 계정 2개(SALES·WAREHOUSE, 마지막에 비활성화)가 생깁니다.",
+    "description": "API 명세서 5장 거래처 목록·등록·상세·수정·비활성화·거래 이력(5.1~5.6) 테스트. Collection Runner로 위에서부터 순서대로 한 번에 실행하세요(앞 요청이 저장한 값을 뒤 요청이 사용합니다). 실행 전 admin_username, admin_password가 들어 있는 Environment를 선택하세요. 관리자 계정 정보는 이 컬렉션 파일에 넣지 마세요(git에 올라갑니다). 실행할 때마다 테스트 거래처 2개(공급처·고객사)와 테스트 계정 2개(SALES·WAREHOUSE)가 생기고, 모두 마지막에 비활성화됩니다. 진행 중 거래가 있을 때의 409 PARTNER_IN_USE와 실제 거래 이력 행은 주문·매입 API가 아직 없어 이 컬렉션에서 확인하지 않습니다.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -1481,7 +1481,735 @@
       ]
     },
     {
-      "name": "6. 정리",
+      "name": "6. 거래처 삭제(비활성화) (5.5)",
+      "item": [
+        {
+          "name": "공급처 비활성화 (관리자) → 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "이미 비활성인 거래처 다시 비활성화 → 204 (변경 없음)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "비활성 거래처도 상세 조회 가능 → 200 (is_active = false)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"is_active = false\", () => pm.expect(body.data.is_active).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "기본 목록에서는 제외 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners?keyword={{supplier_bn}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "{{supplier_bn}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"검색 결과 0건\", () => pm.expect(body.pagination.total_count).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "include_inactive=true면 목록에 포함 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners?keyword={{supplier_bn}}&include_inactive=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners"
+              ],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "{{supplier_bn}}"
+                },
+                {
+                  "key": "include_inactive",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"비활성 공급처 1건\", () => { pm.expect(body.pagination.total_count).to.eql(1); pm.expect(body.data[0].is_active).to.be.false; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "비활성화 실패 - 창고 계정 → 403",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = FORBIDDEN\", () => pm.expect(body.error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "비활성화 실패 - 없는 거래처 → 404",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/999999999",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "999999999"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = PARTNER_NOT_FOUND\", () => pm.expect(body.error.code).to.eql(\"PARTNER_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "비활성화 실패 - 토큰 없음 → 401",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(body.error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. 거래처별 거래 이력 (5.6)",
+      "item": [
+        {
+          "name": "거래 이력 조회 (관리자) → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"거래가 없으면 빈 목록\", () => pm.expect(body.data).to.eql([]));",
+                  "pm.test(\"pagination total_count = 0\", () => pm.expect(body.pagination.total_count).to.eql(0));",
+                  "pm.test(\"pagination 기본값 page=1, page_size=20\", () => { pm.expect(body.pagination.page).to.eql(1); pm.expect(body.pagination.page_size).to.eql(20); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "type·기간 필터 조회 (영업) → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions?type=ORDER&start_date=2026-09-01&end_date=2026-09-30",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "ORDER"
+                },
+                {
+                  "key": "start_date",
+                  "value": "2026-09-01"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2026-09-30"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"거래가 없으면 빈 목록\", () => pm.expect(body.data).to.eql([]));",
+                  "pm.test(\"pagination total_count = 0\", () => pm.expect(body.pagination.total_count).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "시작일과 종료일이 같은 날 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions?start_date=2026-09-10&end_date=2026-09-10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2026-09-10"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2026-09-10"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "비활성 거래처도 거래 이력 조회 가능 → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{supplier_id}}",
+                "transactions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - 시작일이 종료일보다 늦음 → 422",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions?start_date=2026-09-30&end_date=2026-09-01",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2026-09-30"
+                },
+                {
+                  "key": "end_date",
+                  "value": "2026-09-01"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = INVALID_DATE_RANGE\", () => pm.expect(body.error.code).to.eql(\"INVALID_DATE_RANGE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - type 값 오류 → 422",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions?type=REFUND",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "REFUND"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNPROCESSABLE_ENTITY\", () => pm.expect(body.error.code).to.eql(\"UNPROCESSABLE_ENTITY\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - 날짜 형식 오류 → 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions?start_date=2026-13-01",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2026-13-01"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = VALIDATION_ERROR\", () => pm.expect(body.error.code).to.eql(\"VALIDATION_ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - 없는 거래처 → 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/999999999/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "999999999",
+                "transactions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = PARTNER_NOT_FOUND\", () => pm.expect(body.error.code).to.eql(\"PARTNER_NOT_FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - 창고 계정 → 403",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{warehouse_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 403\", () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = FORBIDDEN\", () => pm.expect(body.error.code).to.eql(\"FORBIDDEN\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "조회 실패 - 토큰 없음 → 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}/transactions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}",
+                "transactions"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(body.error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "고객사 비활성화 (영업) → 204",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-partners",
+                "{{customer_id}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "테스트로 만든 고객사를 정리하면서 영업 계정의 비활성화 권한도 확인합니다."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. 정리",
       "item": [
         {
           "name": "SALES 테스트 계정 비활성화 → 204",
