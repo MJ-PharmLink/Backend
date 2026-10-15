@@ -18,7 +18,9 @@ import com.pharmlink.backend.domain.partner.entity.PartnerType;
 import com.pharmlink.backend.domain.partner.service.PartnerService;
 import com.pharmlink.backend.domain.purchase.dto.PurchaseCreateRequest;
 import com.pharmlink.backend.domain.purchase.dto.PurchaseCreateResponse;
+import com.pharmlink.backend.domain.purchase.dto.PurchaseDetailResponse;
 import com.pharmlink.backend.domain.purchase.dto.PurchaseLineResponse;
+import com.pharmlink.backend.domain.purchase.dto.PurchaseResponse;
 import com.pharmlink.backend.domain.purchase.entity.Purchase;
 import com.pharmlink.backend.domain.purchase.repository.PurchaseRepository;
 import com.pharmlink.backend.global.exception.BusinessException;
@@ -31,6 +33,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
@@ -42,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -315,6 +322,75 @@ class PurchaseServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVENTORY_UPDATE_FAILED);
         verify(inventoryTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("목록: 조건을 그대로 넘기고 최신 매입일순(purchase_date DESC, purchase_id DESC)으로 조회, item_count는 라인 수")
+    void listPassesFiltersAndSortsLatestFirst() {
+        Purchase purchase = savedPurchase();
+        given(purchaseRepository.search(eq(PARTNER_ID), eq(WAREHOUSE_ID), eq(LocalDate.of(2026, 9, 1)),
+                eq(LocalDate.of(2026, 9, 30)), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(purchase)));
+
+        Page<PurchaseResponse> page = purchaseService.getPurchases(PARTNER_ID, WAREHOUSE_ID,
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30), 1, 20);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(purchaseRepository).search(any(), any(), any(), any(), pageable.capture());
+        assertThat(pageable.getValue().getSort())
+                .isEqualTo(Sort.by(Sort.Order.desc("purchaseDate"), Sort.Order.desc("purchaseId")));
+        PurchaseResponse row = page.getContent().get(0);
+        assertThat(row.purchaseId()).isEqualTo(PURCHASE_ID);
+        assertThat(row.partnerName()).isEqualTo("대한제약");
+        assertThat(row.itemCount()).isEqualTo(2);
+        assertThat(row.totalAmount()).isEqualTo(875_000L);
+    }
+
+    @Test
+    @DisplayName("목록: 시작일이 종료일보다 늦으면 422 INVALID_DATE_RANGE")
+    void listWithInvalidDateRange() {
+        assertThatThrownBy(() -> purchaseService.getPurchases(null, null,
+                LocalDate.of(2026, 9, 30), LocalDate.of(2026, 9, 1), null, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_DATE_RANGE);
+        verify(purchaseRepository, never()).search(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("상세: 라인별 원가 스냅샷·로트번호·유통기한을 반환하고 quantity_after는 없음")
+    void detailReturnsLinesWithLotInfo() {
+        given(purchaseRepository.findDetailById(PURCHASE_ID)).willReturn(Optional.of(savedPurchase()));
+
+        PurchaseDetailResponse response = purchaseService.getPurchase(PURCHASE_ID);
+
+        assertThat(response.totalAmount()).isEqualTo(875_000L);
+        assertThat(response.items()).extracting(PurchaseLineResponse::lotNumber).containsExactly("TL2706C", "BA2703A");
+        assertThat(response.items()).extracting(PurchaseLineResponse::unitCost).containsExactly(3500L, 10500L);
+        assertThat(response.items()).extracting(PurchaseLineResponse::expiryDate)
+                .containsExactly(LocalDate.of(2027, 6, 30), LocalDate.of(2027, 3, 31));
+        assertThat(response.items()).extracting(PurchaseLineResponse::quantityAfter).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("상세: 없는 매입이면 404 PURCHASE_NOT_FOUND")
+    void detailOfUnknownPurchase() {
+        given(purchaseRepository.findDetailById(999L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> purchaseService.getPurchase(999L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PURCHASE_NOT_FOUND);
+    }
+
+    // 타이레놀 100개(원가 3,500) + 베아제 50개(원가 10,500) = 875,000원 매입
+    private static Purchase savedPurchase() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        Item beazet = item(205L, 10500);
+        Purchase purchase = Purchase.create(supplier(), warehouse, PURCHASE_DATE, USER_ID);
+        ReflectionTestUtils.setField(purchase, "purchaseId", PURCHASE_ID);
+        purchase.addItem(tylenol, lot(inventory(warehouse, tylenol, 100), 13L, "TL2706C", "2027-06-30", 100), 100);
+        purchase.addItem(beazet, lot(inventory(warehouse, beazet, 50), 14L, "BA2703A", "2027-03-31", 50), 50);
+        return purchase;
     }
 
     private void givenValidHeader(Warehouse warehouse, Item... items) {
