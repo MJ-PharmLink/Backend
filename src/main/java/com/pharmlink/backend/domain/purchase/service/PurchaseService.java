@@ -10,11 +10,16 @@ import com.pharmlink.backend.domain.partner.entity.BusinessPartner;
 import com.pharmlink.backend.domain.partner.service.PartnerService;
 import com.pharmlink.backend.domain.purchase.dto.PurchaseCreateRequest;
 import com.pharmlink.backend.domain.purchase.dto.PurchaseCreateResponse;
+import com.pharmlink.backend.domain.purchase.dto.PurchaseDetailResponse;
+import com.pharmlink.backend.domain.purchase.dto.PurchaseResponse;
 import com.pharmlink.backend.domain.purchase.entity.Purchase;
 import com.pharmlink.backend.domain.purchase.repository.PurchaseRepository;
+import com.pharmlink.backend.global.common.PageRequestFactory;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,11 +36,33 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PurchaseService {
 
+    private static final Sort LATEST_FIRST = Sort.by(Sort.Order.desc("purchaseDate"), Sort.Order.desc("purchaseId"));
+
     private final PurchaseRepository purchaseRepository;
     private final WarehouseRepository warehouseRepository;
     private final ItemRepository itemRepository;
     private final PartnerService partnerService;
     private final InventoryStockService inventoryStockService;
+
+    // 매입 목록 (10.1, 최신 매입일순). 기간은 purchase_date 기준으로 시작일·종료일 모두 포함
+    @Transactional(readOnly = true)
+    public Page<PurchaseResponse> getPurchases(Long partnerId, Long warehouseId, LocalDate startDate,
+                                               LocalDate endDate, Integer page, Integer pageSize) {
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new BusinessException(ErrorCode.INVALID_DATE_RANGE);
+        }
+        return purchaseRepository.search(partnerId, warehouseId, startDate, endDate,
+                        PageRequestFactory.of(page, pageSize, LATEST_FIRST))
+                .map(PurchaseResponse::from);
+    }
+
+    // 매입 상세 (10.3). 라인의 unit_cost는 매입 시점 스냅샷
+    @Transactional(readOnly = true)
+    public PurchaseDetailResponse getPurchase(Long purchaseId) {
+        return purchaseRepository.findDetailById(purchaseId)
+                .map(PurchaseDetailResponse::from)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PURCHASE_NOT_FOUND));
+    }
 
     // 매입 등록 (10.2): 매입 헤더 → [라인별] 재고 행 잠금·생성 → 로트 생성/합산 → 매입 라인(lot_id, 원가 스냅샷)
     // → 재고 수량 증가 → 재고 이력(IN, PURCHASE). 어느 단계든 실패하면 전체 rollback
