@@ -1,6 +1,8 @@
 package com.pharmlink.backend.domain.order.service;
 
 import com.pharmlink.backend.domain.delivery.repository.DeliveryRepository;
+import com.pharmlink.backend.domain.inventory.repository.WarehouseRepository;
+import com.pharmlink.backend.domain.inventory.service.InventoryStockService;
 import com.pharmlink.backend.domain.item.entity.Item;
 import com.pharmlink.backend.domain.item.repository.ItemRepository;
 import com.pharmlink.backend.domain.order.dto.OrderCancelRequest;
@@ -56,6 +58,10 @@ class OrderServiceTest {
     private DeliveryRepository deliveryRepository;
     @Mock
     private PartnerService partnerService;
+    @Mock
+    private WarehouseRepository warehouseRepository;
+    @Mock
+    private InventoryStockService inventoryStockService;
 
     private OrderService orderService;
 
@@ -64,7 +70,7 @@ class OrderServiceTest {
         // 실제 트랜잭션 없이 콜백만 실행되도록 TransactionManager를 Mock으로 둔다
         TransactionTemplate transactionTemplate = new TransactionTemplate(mock(PlatformTransactionManager.class));
         orderService = new OrderService(orderRepository, itemRepository, deliveryRepository, partnerService,
-                transactionTemplate);
+                warehouseRepository, inventoryStockService, transactionTemplate);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.pharmlink.backend.domain.order.controller;
 
+import com.pharmlink.backend.domain.order.dto.OrderApproveResponse;
 import com.pharmlink.backend.domain.order.dto.OrderCancelRequest;
 import com.pharmlink.backend.domain.order.dto.OrderCancelResponse;
 import com.pharmlink.backend.domain.order.dto.OrderCreateRequest;
@@ -65,6 +66,15 @@ public class OrderController {
     @GetMapping("/{orderId}")
     public ApiResponse<OrderDetailResponse> getOrder(@PathVariable Long orderId) {
         return ApiResponse.success(orderService.getOrder(orderId));
+    }
+
+    // 8.4 주문 승인 (재고 차감·납품 생성)
+    @PreAuthorize(AccessRole.ADMIN_SALES)
+    @PostMapping("/{orderId}/approve")
+    public ApiResponse<OrderApproveResponse> approveOrder(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long orderId) {
+        return ApiResponse.success(orderService.approveOrder(orderId, principal.userId()));
     }
 
     // 8.5 주문 취소 (본문 생략 가능)

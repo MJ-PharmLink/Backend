@@ -18,7 +18,7 @@ public class ErrorResponse {
         return of(code, message, Collections.emptyList());
     }
 
-    public static ErrorResponse of(String code, String message, List<FieldError> details) {
+    public static ErrorResponse of(String code, String message, List<?> details) {
         return ErrorResponse.builder()
                 .success(false)
                 .error(ErrorDetail.builder()
@@ -35,7 +35,8 @@ public class ErrorResponse {
     public static class ErrorDetail {
         private String code;
         private String message;
-        private List<FieldError> details;
+        // 필드 검증 오류는 FieldError, 업무 오류는 코드별 상세 항목
+        private List<?> details;
     }
 
     @Getter
