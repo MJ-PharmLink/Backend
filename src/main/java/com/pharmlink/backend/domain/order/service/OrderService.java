@@ -1,8 +1,14 @@
 package com.pharmlink.backend.domain.order.service;
 
+import com.pharmlink.backend.domain.delivery.entity.Delivery;
 import com.pharmlink.backend.domain.delivery.repository.DeliveryRepository;
+import com.pharmlink.backend.domain.inventory.dto.StockRequest;
+import com.pharmlink.backend.domain.inventory.entity.Warehouse;
+import com.pharmlink.backend.domain.inventory.repository.WarehouseRepository;
+import com.pharmlink.backend.domain.inventory.service.InventoryStockService;
 import com.pharmlink.backend.domain.item.entity.Item;
 import com.pharmlink.backend.domain.item.repository.ItemRepository;
+import com.pharmlink.backend.domain.order.dto.OrderApproveResponse;
 import com.pharmlink.backend.domain.order.dto.OrderCancelRequest;
 import com.pharmlink.backend.domain.order.dto.OrderCancelResponse;
 import com.pharmlink.backend.domain.order.dto.OrderCreateRequest;
@@ -31,6 +37,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +59,8 @@ public class OrderService {
     private final ItemRepository itemRepository;
     private final DeliveryRepository deliveryRepository;
     private final PartnerService partnerService;
+    private final WarehouseRepository warehouseRepository;
+    private final InventoryStockService inventoryStockService;
     private final TransactionTemplate transactionTemplate;
 
     // 주문 목록 (최신순). 기간은 created_at 기준, KST 시작일 00:00 ~ 종료일 다음 날 00:00 전까지
@@ -89,6 +98,35 @@ public class OrderService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
         Long deliveryId = deliveryRepository.findDeliveryIdByOrderId(orderId).orElse(null);
         return OrderDetailResponse.from(order, deliveryId);
+    }
+
+    // 주문 승인 (8.4): 주문 행 잠금 → PENDING 재확인 → 단종 상품 확인 → 기본 창고 가용 재고 확인·FEFO 차감·출고 이력
+    // → APPROVED → 납품(WAITING) 생성. 한 트랜잭션이라 어느 단계든 실패하면 재고 차감까지 전부 rollback
+    @Transactional
+    public OrderApproveResponse approveOrder(Long orderId, Long userId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+        if (order.getStatus() == OrderStatus.APPROVED) {
+            throw new BusinessException(ErrorCode.ORDER_ALREADY_APPROVED);
+        }
+        if (!order.isPending()) {
+            throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
+        }
+        if (order.getItems().stream().anyMatch(orderItem -> !orderItem.getItem().isActive())) {
+            throw new BusinessException(ErrorCode.ITEM_INACTIVE);
+        }
+
+        Warehouse warehouse = warehouseRepository.findDefault()
+                .orElseThrow(() -> new BusinessException(ErrorCode.WAREHOUSE_NOT_FOUND));
+        List<StockRequest> requests = order.getItems().stream()
+                .map(orderItem -> new StockRequest(orderItem.getItem(), orderItem.getQuantity()))
+                .toList();
+        inventoryStockService.shipOrder(order.getOrderId(), warehouse, requests, userId);
+
+        // DB TIMESTAMP(초 단위)에 저장되는 값과 응답 값을 맞추기 위해 초 미만은 버린다
+        order.approve(Instant.now().truncatedTo(ChronoUnit.SECONDS));
+        Delivery delivery = deliveryRepository.save(Delivery.create(order));
+        return OrderApproveResponse.from(order, delivery);
     }
 
     // 주문 취소: 행을 잠근 뒤 PENDING만 취소. APPROVED·CANCELLED는 409 INVALID_ORDER_STATUS

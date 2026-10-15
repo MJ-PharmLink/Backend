@@ -25,7 +25,7 @@ public class GlobalExceptionHandler {
     // 서비스에서 던진 업무 예외
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException e) {
-        return toResponse(e.getErrorCode(), e.getMessage(), List.of());
+        return toResponse(e.getErrorCode(), e.getMessage(), e.getDetails());
     }
 
     // @Valid 검증 실패 (@RequestBody, @ModelAttribute) → 400 VALIDATION_ERROR
@@ -121,8 +121,7 @@ public class GlobalExceptionHandler {
         return toResponse(ErrorCode.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_SERVER_ERROR.getMessage(), List.of());
     }
 
-    private ResponseEntity<ErrorResponse> toResponse(ErrorCode errorCode, String message,
-                                                     List<ErrorResponse.FieldError> details) {
+    private ResponseEntity<ErrorResponse> toResponse(ErrorCode errorCode, String message, List<?> details) {
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode.name(), message, details));
     }

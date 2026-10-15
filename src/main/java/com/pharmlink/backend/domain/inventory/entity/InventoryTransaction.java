@@ -85,6 +85,11 @@ public class InventoryTransaction {
         return of(TransactionType.IN, ReferenceType.PURCHASE, purchaseId, lot, quantity, createdBy);
     }
 
+    // 주문 승인 출고 이력 (OUT, ORDER). 한 상품이 여러 로트에 걸치면 로트별로 1건씩
+    public static InventoryTransaction orderOut(Long orderId, InventoryLot lot, int quantity, Long createdBy) {
+        return of(TransactionType.OUT, ReferenceType.ORDER, orderId, lot, quantity, createdBy);
+    }
+
     private static InventoryTransaction of(TransactionType type, ReferenceType referenceType, Long referenceId,
                                            InventoryLot lot, int quantity, Long createdBy) {
         Inventory inventory = lot.getInventory();
