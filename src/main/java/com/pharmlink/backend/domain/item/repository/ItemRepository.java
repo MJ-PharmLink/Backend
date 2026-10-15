@@ -7,3 +7,4 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
 
     boolean existsByItemCode(String itemCode);
 }
+

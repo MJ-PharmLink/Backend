@@ -1,3 +1,4 @@
+
 package com.pharmlink.backend.domain.item.entity;
 
 import com.pharmlink.backend.global.common.BaseEntity;
@@ -6,15 +7,30 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "items")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Table(
+        name = "items",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_items_item_code",
+                        columnNames = "item_code"
+                )
+        },
+        indexes = {
+                @Index(name = "idx_items_category", columnList = "category_id"),
+                @Index(name = "idx_items_supplier", columnList = "supplier_id"),
+                @Index(name = "idx_items_name", columnList = "item_name")
+        }
+)
 public class Item extends BaseEntity {
 
     @Id
@@ -22,7 +38,7 @@ public class Item extends BaseEntity {
     @Column(name = "item_id")
     private Long itemId;
 
-    @Column(name = "item_code", nullable = false, length = 20, unique = true)
+    @Column(name = "item_code", nullable = false, length = 20)
     private String itemCode;
 
     @Column(name = "item_name", nullable = false, length = 100)
@@ -129,5 +145,3 @@ public class Item extends BaseEntity {
         this.isActive = false;
     }
 }
-
-
