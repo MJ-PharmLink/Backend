@@ -11,11 +11,21 @@ import java.util.Optional;
 
 public interface InventoryRepository extends JpaRepository<Inventory, Long> {
 
-    // 재고 증감 전 (창고, 상품) 재고 행을 잠근다 (SELECT ... FOR UPDATE)
+    // 기존 기능: 재고 변경 전 행 잠금
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select i from Inventory i
-            where i.warehouse.warehouseId = :warehouseId and i.item.itemId = :itemId
+            where i.warehouse.warehouseId = :warehouseId
+              and i.item.itemId = :itemId
             """)
-    Optional<Inventory> findForUpdate(@Param("warehouseId") Long warehouseId, @Param("itemId") Long itemId);
+    Optional<Inventory> findForUpdate(
+            @Param("warehouseId") Long warehouseId,
+            @Param("itemId") Long itemId
+    );
+
+    // DAY 3: 특정 창고의 특정 상품 재고 조회
+    Optional<Inventory> findByWarehouseWarehouseIdAndItemItemId(
+            Long warehouseId,
+            Long itemId
+    );
 }
