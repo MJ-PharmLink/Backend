@@ -4,7 +4,7 @@ spring:
   config:
     import: application-secret.yml
   datasource:
-    url: jdbc:mysql://localhost:3306/pharm_erp?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: ${DB_URL:jdbc:mysql://localhost:3306/pharm_erp?serverTimezone=Asia/Seoul&characterEncoding=UTF-8}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
