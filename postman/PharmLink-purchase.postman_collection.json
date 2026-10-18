@@ -2,7 +2,7 @@
     "info": {
         "name": "PharmLink - 매입 (10장)",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-        "description": "10.1 목록 · 10.2 등록(입고·재고 증가) · 10.3 상세 테스트. 권한: 관리자, 창고.\n\n준비: 상품 등록 API(6장)가 아직 없으므로 items 테이블에 상품을 직접 넣고 컬렉션 변수 item_id_1, item_id_2(활성 상품), inactive_item_id(단종 상품)를 채운 뒤 실행합니다. 주문 컬렉션(PharmLink-order)에서 넣은 상품을 그대로 써도 됩니다. admin_username / admin_password는 application-secret.yml의 admin.* 값입니다.\n\n예시 SQL (supplier_id는 존재하는 SUPPLIER 거래처 ID):\nINSERT INTO items (item_code,item_name,category_id,spec,unit,unit_cost,unit_price,safety_stock,supplier_id,is_active) VALUES\n('IT-MED-NP-0001','타이레놀정 500mg',3,'500mg','정',3500,5000,10,1,1),\n('IT-MED-GC-0001','베아제정',2,NULL,'정',10500,15000,10,1,1),\n('IT-MED-OT-0001','단종 테스트약',5,NULL,'정',100,200,0,1,0);\n\n로트번호는 실행마다 run_id를 붙여 새로 만들므로 컬렉션을 반복 실행해도 됩니다. 입고 결과는 inventories / inventory_lots / inventory_transactions(type = IN, reference_type = PURCHASE)에서 확인할 수 있습니다."
+        "description": "10.1 목록 · 10.2 등록(입고·재고 증가) · 10.3 상세 테스트. 권한: 관리자, 창고.\n\n준비: 상품 등록 API(6장)가 아직 없으므로 items 테이블에 상품을 직접 넣고 컬렉션 변수 item_id_1, item_id_2(활성 상품), inactive_item_id(단종 상품)를 채운 뒤 실행합니다. 주문 컬렉션(PharmLink-order)에서 넣은 상품을 그대로 써도 됩니다. admin_username / admin_password는 application-secret.yml의 admin.* 값입니다.\n\n예시 SQL (상품의 supplier_id는 SUPPLIER 거래처여야 한다. 공급처가 하나도 없는 새 DB라면 첫 줄로 먼저 만든다):\nINSERT INTO business_partners (partner_type,name,business_number,phone,address) VALUES ('SUPPLIER','시드 공급처','000-00-00001','02-0000-0000','시드');\nSET @sid = (SELECT MIN(partner_id) FROM business_partners WHERE partner_type = 'SUPPLIER');\nINSERT INTO items (item_code,item_name,category_id,spec,unit,unit_cost,unit_price,safety_stock,supplier_id,is_active) VALUES\n('IT-MED-NP-0001','타이레놀정 500mg',3,'500mg','정',3500,5000,10,@sid,1),\n('IT-MED-GC-0001','베아제정',2,NULL,'정',10500,15000,10,@sid,1),\n('IT-MED-OT-0001','단종 테스트약',5,NULL,'정',100,200,0,@sid,0);\n\n로트번호는 실행마다 run_id를 붙여 새로 만들므로 컬렉션을 반복 실행해도 됩니다. 입고 결과는 inventories / inventory_lots / inventory_transactions(type = IN, reference_type = PURCHASE)에서 확인할 수 있습니다."
     },
     "item": [
         {
@@ -504,7 +504,7 @@
                     ]
                 },
                 {
-                    "name": "10.2 같은 상품·다른 로트 두 줄 → 201 (quantity_after 라인 순서대로 누적)",
+                    "name": "10.2 같은 상품·다른 로트 두 줄 (매입일 하루 전) → 201 (quantity_after 라인 순서대로 누적)",
                     "request": {
                         "method": "POST",
                         "header": [
@@ -536,7 +536,7 @@
                         },
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"partner_id\": {{supplier_id}},\n  \"warehouse_id\": 1,\n  \"purchase_date\": \"2026-10-15\",\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 10, \"lot_number\": \"TLA{{run_id}}\", \"expiry_date\": \"2027-08-31\" },\n    { \"item_id\": {{item_id_1}}, \"quantity\": 5, \"lot_number\": \"TLB{{run_id}}\", \"expiry_date\": \"2027-09-30\" }\n  ]\n}",
+                            "raw": "{\n  \"partner_id\": {{supplier_id}},\n  \"warehouse_id\": 1,\n  \"purchase_date\": \"2026-10-14\",\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 10, \"lot_number\": \"TLA{{run_id}}\", \"expiry_date\": \"2027-08-31\" },\n    { \"item_id\": {{item_id_1}}, \"quantity\": 5, \"lot_number\": \"TLB{{run_id}}\", \"expiry_date\": \"2027-09-30\" }\n  ]\n}",
                             "options": {
                                 "raw": {
                                     "language": "json"
@@ -553,7 +553,8 @@
                                     "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
                                     "const d = pm.response.json().data;",
                                     "pm.test(\"서로 다른 로트\", () => pm.expect(d.items[0].lot_id).to.not.eql(d.items[1].lot_id));",
-                                    "pm.test(\"두 번째 quantity_after = 첫 번째 + 5\", () => pm.expect(d.items[1].quantity_after).to.eql(d.items[0].quantity_after + 5));"
+                                    "pm.test(\"두 번째 quantity_after = 첫 번째 + 5\", () => pm.expect(d.items[1].quantity_after).to.eql(d.items[0].quantity_after + 5));",
+                                    "pm.collectionVariables.set(\"purchase_id_earlier\", d.purchase_id);"
                                 ]
                             }
                         }
@@ -611,7 +612,8 @@
                                     "pm.test(\"pagination 포함\", () => pm.expect(body.pagination.total_count).to.be.at.least(3));",
                                     "pm.test(\"모두 해당 공급처\", () => body.data.forEach(p => pm.expect(p.partner_id).to.eql(Number(pm.collectionVariables.get(\"supplier_id\")))));",
                                     "pm.test(\"첫 등록 매입이 목록에 있고 item_count = 2\", () => { const p = body.data.find(x => x.purchase_id === Number(pm.collectionVariables.get(\"purchase_id\"))); pm.expect(p).to.not.be.undefined; pm.expect(p.item_count).to.eql(2); });",
-                                    "pm.test(\"최신 매입일순\", () => { for (let i = 1; i < body.data.length; i++) pm.expect(body.data[i - 1].purchase_date >= body.data[i].purchase_date).to.be.true; });"
+                                    "pm.test(\"최신 매입일순, 같은 날이면 purchase_id 큰 순\", () => { for (let i = 1; i < body.data.length; i++) { const a = body.data[i - 1], b = body.data[i]; pm.expect(a.purchase_date > b.purchase_date || (a.purchase_date === b.purchase_date && a.purchase_id > b.purchase_id)).to.be.true; } });",
+                                    "pm.test(\"하루 전 매입이 10-15 매입들보다 뒤\", () => { const ids = body.data.map(p => p.purchase_id); pm.expect(ids.indexOf(Number(pm.collectionVariables.get(\"purchase_id_earlier\")))).to.be.above(ids.indexOf(Number(pm.collectionVariables.get(\"purchase_id\")))); });"
                                 ]
                             }
                         }
@@ -623,7 +625,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{base_url}}/api/v1/purchases?warehouse_id=1&start_date=2026-10-15&end_date=2026-10-15",
+                            "raw": "{{base_url}}/api/v1/purchases?warehouse_id=1&start_date=2026-10-15&end_date=2026-10-15&partner_id={{supplier_id}}",
                             "host": [
                                 "{{base_url}}"
                             ],
@@ -644,6 +646,10 @@
                                 {
                                     "key": "end_date",
                                     "value": "2026-10-15"
+                                },
+                                {
+                                    "key": "partner_id",
+                                    "value": "{{supplier_id}}"
                                 }
                             ]
                         },
@@ -665,7 +671,10 @@
                                 "type": "text/javascript",
                                 "exec": [
                                     "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-                                    "pm.test(\"모두 2026-10-15·창고 1\", () => pm.response.json().data.forEach(p => { pm.expect(p.purchase_date).to.eql(\"2026-10-15\"); pm.expect(p.warehouse_id).to.eql(1); }));"
+                                    "pm.test(\"모두 2026-10-15·창고 1\", () => pm.response.json().data.forEach(p => { pm.expect(p.purchase_date).to.eql(\"2026-10-15\"); pm.expect(p.warehouse_id).to.eql(1); }));",
+                                    "const ids = pm.response.json().data.map(p => p.purchase_id);",
+                                    "pm.test(\"이번 실행의 10-15 매입 포함 (결과 0건이면 실패)\", () => pm.expect(ids).to.include(Number(pm.collectionVariables.get(\"purchase_id\"))));",
+                                    "pm.test(\"기간 밖(10-14) 매입은 제외\", () => pm.expect(ids).to.not.include(Number(pm.collectionVariables.get(\"purchase_id_earlier\"))));"
                                 ]
                             }
                         }

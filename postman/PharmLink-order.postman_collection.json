@@ -2,7 +2,7 @@
   "info": {
     "name": "PharmLink - 주문 (8장)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "8.1 목록 · 8.2 등록 · 8.3 상세 · 8.4 승인 · 8.5 취소 테스트.\n\n준비: 상품 등록 API(6장)가 아직 없으므로 items 테이블에 상품을 직접 넣고 컬렉션 변수 item_id_1, item_id_2(활성 상품), inactive_item_id(단종 상품)를 채운 뒤 실행합니다. admin_username / admin_password는 application-secret.yml의 admin.* 값입니다.\n\n예시 SQL (supplier_id는 존재하는 SUPPLIER 거래처 ID):\nINSERT INTO items (item_code,item_name,category_id,spec,unit,unit_cost,unit_price,safety_stock,supplier_id,is_active) VALUES\n('IT-MED-NP-0001','타이레놀정 500mg',3,'500mg','정',3500,5000,10,1,1),\n('IT-MED-GC-0001','베아제정',2,NULL,'정',10500,15000,10,1,1),\n('IT-MED-OT-0001','단종 테스트약',5,NULL,'정',100,200,0,1,0);\n\n4번 폴더(8.4 승인)는 매입 등록(10.2)으로 재고를 먼저 넣은 뒤 승인·재고 차감·납품 생성·재고 부족을 확인합니다. 1~3번 폴더를 먼저 실행해야 합니다 (supplier_id, customer_id, 취소된 order_id, warehouse_token 사용)."
+    "description": "8.1 목록 · 8.2 등록 · 8.3 상세 · 8.4 승인 · 8.5 취소 테스트.\n\n준비: 상품 등록 API(6장)가 아직 없으므로 items 테이블에 상품을 직접 넣고 컬렉션 변수 item_id_1, item_id_2(활성 상품), inactive_item_id(단종 상품)를 채운 뒤 실행합니다. admin_username / admin_password는 application-secret.yml의 admin.* 값입니다.\n\n예시 SQL (상품의 supplier_id는 SUPPLIER 거래처여야 한다. 공급처가 하나도 없는 새 DB라면 첫 줄로 먼저 만든다):\nINSERT INTO business_partners (partner_type,name,business_number,phone,address) VALUES ('SUPPLIER','시드 공급처','000-00-00001','02-0000-0000','시드');\nSET @sid = (SELECT MIN(partner_id) FROM business_partners WHERE partner_type = 'SUPPLIER');\nINSERT INTO items (item_code,item_name,category_id,spec,unit,unit_cost,unit_price,safety_stock,supplier_id,is_active) VALUES\n('IT-MED-NP-0001','타이레놀정 500mg',3,'500mg','정',3500,5000,10,@sid,1),\n('IT-MED-GC-0001','베아제정',2,NULL,'정',10500,15000,10,@sid,1),\n('IT-MED-OT-0001','단종 테스트약',5,NULL,'정',100,200,0,@sid,0);\n\n4번 폴더(8.4 승인)는 매입 등록(10.2)으로 재고를 먼저 넣은 뒤 승인·재고 차감·납품 생성·재고 부족을 확인합니다. 1~3번 폴더를 먼저 실행해야 합니다 (supplier_id, customer_id, 취소된 order_id, warehouse_token 사용)."
   },
   "item": [
     {
@@ -277,6 +277,107 @@
               }
             }
           ]
+        },
+        {
+          "name": "SALES 테스트 계정 생성 → 201",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"Passw0rd!\",\n  \"name\": \"영업담당\",\n  \"role\": \"SALES\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SALES 로그인 → 200 (영업 토큰 저장)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"Passw0rd!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"sales_token\", pm.response.json().data.access_token);"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -398,6 +499,71 @@
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"pagination 포함, 방금 등록한 주문 포함\", () => { const b = pm.response.json(); pm.expect(b.pagination).to.have.property(\"total_count\"); pm.expect(b.data.map(o => o.order_id)).to.include(Number(pm.collectionVariables.get(\"order_id\"))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8.1 주문 목록 (기간 = 오늘 KST) → 200 (방금 등록한 주문 포함)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders?start_date={{today_kst}}&end_date={{today_kst}}&partner_id={{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "{{today_kst}}"
+                },
+                {
+                  "key": "end_date",
+                  "value": "{{today_kst}}"
+                },
+                {
+                  "key": "partner_id",
+                  "value": "{{customer_id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 오늘 날짜(KST, yyyy-MM-dd)를 기간 필터 값으로 쓴다",
+                  "const kst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);",
+                  "pm.collectionVariables.set(\"today_kst\", kst);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"오늘 등록한 주문 포함 (KST 날짜 경계)\", () => pm.expect(pm.response.json().data.map(o => o.order_id)).to.include(Number(pm.collectionVariables.get(\"order_id\"))));"
                 ]
               }
             }
@@ -1489,7 +1655,7 @@
           ]
         },
         {
-          "name": "8.4 주문 승인 → 200 (APPROVED, 납품 WAITING)",
+          "name": "8.4 주문 승인 (영업 계정) → 200 (APPROVED, 납품 WAITING)",
           "request": {
             "method": "POST",
             "header": [
@@ -1516,7 +1682,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{access_token}}",
+                  "value": "{{sales_token}}",
                   "type": "string"
                 }
               ]
@@ -1636,7 +1802,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
-                  "pm.test(\"FEFO 차감 반영 (재고 5 감소)\", () => pm.expect(pm.response.json().data.items[0].quantity_after).to.eql(Number(pm.collectionVariables.get(\"stock_before\")) - 5 + 1));"
+                  "pm.test(\"승인으로 재고 합계 5 감소 (로트별 FEFO 순서는 JUnit 통합 테스트에서 확인)\", () => pm.expect(pm.response.json().data.items[0].quantity_after).to.eql(Number(pm.collectionVariables.get(\"stock_before\")) - 5 + 1));"
                 ]
               }
             }
@@ -1880,7 +2046,7 @@
                   "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
                   "pm.test(\"error.code = INSUFFICIENT_STOCK\", () => pm.expect(pm.response.json().error.code).to.eql(\"INSUFFICIENT_STOCK\"));",
                   "const detail = pm.response.json().error.details[0];",
-                  "pm.test(\"details: item_id·requested_quantity·available_quantity\", () => { pm.expect(detail.item_id).to.eql(Number(pm.collectionVariables.get(\"item_id_1\"))); pm.expect(detail.requested_quantity).to.eql(999999); pm.expect(detail.available_quantity).to.be.below(999999); pm.expect(detail.item_name).to.be.a(\"string\"); });"
+                  "pm.test(\"details: item_id·requested_quantity·available_quantity\", () => { pm.expect(detail.item_id).to.eql(Number(pm.variables.get(\"item_id_1\"))); pm.expect(detail.requested_quantity).to.eql(999999); pm.expect(detail.available_quantity).to.be.below(999999); pm.expect(detail.item_name).to.be.a(\"string\"); });"
                 ]
               }
             }
@@ -1927,6 +2093,62 @@
                 "exec": [
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"status = PENDING (rollback)\", () => pm.expect(pm.response.json().data.status).to.eql(\"PENDING\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8.5 재고 부족 주문 취소 (정리) → 200",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/{{big_order_id}}/cancel",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{big_order_id}}",
+                "cancel"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancel_reason\": \"Postman 정리\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"status = CANCELLED (반복 실행 시 승인 대기 주문이 쌓이지 않음)\", () => pm.expect(pm.response.json().data.status).to.eql(\"CANCELLED\"));"
                 ]
               }
             }
@@ -2104,6 +2326,14 @@
     },
     {
       "key": "stock_before",
+      "value": ""
+    },
+    {
+      "key": "sales_token",
+      "value": ""
+    },
+    {
+      "key": "today_kst",
       "value": ""
     }
   ]

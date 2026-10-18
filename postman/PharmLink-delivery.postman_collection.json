@@ -540,6 +540,48 @@
           ]
         },
         {
+          "name": "주문 A 상세 (원가 저장) → 200",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/{{order_a}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{order_a}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const items = pm.response.json().data.items;",
+                  "pm.collectionVariables.set(\"order_a_cost\", items.reduce((s, i) => s + i.unit_cost * i.quantity, 0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "주문 B 등록·승인 준비 (1개) → 201",
           "request": {
             "method": "POST",
@@ -703,6 +745,71 @@
           ]
         },
         {
+          "name": "9.1 납품 목록 (기간 = 오늘 KST) → 200 (납품 A 포함)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/deliveries?start_date={{today_kst}}&end_date={{today_kst}}&partner_id={{customer_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "deliveries"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "{{today_kst}}"
+                },
+                {
+                  "key": "end_date",
+                  "value": "{{today_kst}}"
+                },
+                {
+                  "key": "partner_id",
+                  "value": "{{customer_id}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{sales_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 오늘 날짜(KST, yyyy-MM-dd)를 기간 필터 값으로 쓴다",
+                  "const kst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);",
+                  "pm.collectionVariables.set(\"today_kst\", kst);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"오늘 생성된 납품 A 포함 (KST 날짜 경계)\", () => pm.expect(pm.response.json().data.map(r => r.delivery_id)).to.include(Number(pm.collectionVariables.get(\"delivery_a\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "9.2 납품 상세 → 200 (품목, 원가 없음, 일시 null)",
           "request": {
             "method": "GET",
@@ -841,7 +948,7 @@
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "const d = pm.response.json().data;",
                   "pm.test(\"status DELIVERED, sale_id\", () => { pm.expect(d.status).to.eql(\"DELIVERED\"); pm.expect(d.sale_id).to.be.a(\"number\"); });",
-                  "pm.test(\"sales_amount = 주문 총액, margin = sales - cost\", () => { pm.expect(d.sales_amount).to.eql(Number(pm.collectionVariables.get(\"order_a_amount\"))); pm.expect(d.margin_amount).to.eql(d.sales_amount - d.cost_amount); });"
+                  "pm.test(\"매출 = 주문 총액, 원가 = 주문 라인 원가 스냅샷 합, 마진 = 매출 - 원가\", () => { const sales = Number(pm.collectionVariables.get(\"order_a_amount\")), cost = Number(pm.collectionVariables.get(\"order_a_cost\")); pm.expect(d.sales_amount).to.eql(sales); pm.expect(d.cost_amount).to.eql(cost); pm.expect(d.margin_amount).to.eql(sales - cost); });"
                 ]
               }
             }
@@ -1419,6 +1526,41 @@
               }
             }
           ]
+        },
+        {
+          "name": "9.5 토큰 없이 납품서 → 401 UNAUTHORIZED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/deliveries/{{delivery_a}}/document",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "deliveries",
+                "{{delivery_a}}",
+                "document"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                  "pm.test(\"error.code = UNAUTHORIZED (JSON 오류)\", () => pm.expect(pm.response.json().error.code).to.eql(\"UNAUTHORIZED\"));"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
@@ -1490,6 +1632,14 @@
     },
     {
       "key": "delivery_b",
+      "value": ""
+    },
+    {
+      "key": "order_a_cost",
+      "value": ""
+    },
+    {
+      "key": "today_kst",
       "value": ""
     }
   ]
