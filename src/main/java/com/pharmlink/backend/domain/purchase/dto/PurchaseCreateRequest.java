@@ -16,7 +16,7 @@ public record PurchaseCreateRequest(
         // 생략하면 기본 창고 (is_default = true)
         Long warehouseId,
         @NotNull LocalDate purchaseDate,
-        @NotEmpty @Valid List<Line> items
+        @NotEmpty List<@NotNull @Valid Line> items
 ) {
     public record Line(
             @NotNull Long itemId,
