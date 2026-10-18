@@ -55,6 +55,9 @@ class DeliveryDocumentServiceTest {
         assertThat(text).contains("납 품 서", "팜링크약품", "220-81-12345", "김대표", "행복약국", "123-45-67890");
         assertThat(text).contains("35", "ORD-20260910-0088", "타이레놀정 500mg", "500mg", "50,000", "125,000");
         assertThat(text).contains("2026-09-11");
+        // 명세 9.5 PDF 포함 항목: 공급자 주소·연락처, 공급받는자 주소, 품목 열 이름
+        assertThat(text).contains("서울시 송파구", "02-555-1234", "서울시 강남구");
+        assertThat(text).contains("상품명", "규격", "수량", "판매단가", "품목금액", "총 납품금액", "출고일", "납품일");
     }
 
     @Test

@@ -97,13 +97,12 @@ public class DeliveryDocumentService {
         parties.setSpacingAfter(12);
         document.add(parties);
 
-        PdfPTable items = table(new float[]{0.5f, 3, 2, 1, 1.5f, 1.8f});
-        for (String header : new String[]{"No", "상품명", "규격", "수량", "판매단가", "금액"}) {
+        // 품목 열은 명세 9.5 PDF 포함 항목 그대로: 상품명, 규격, 수량, 판매단가, 품목금액
+        PdfPTable items = table(new float[]{3, 2, 1, 1.5f, 1.8f});
+        for (String header : new String[]{"상품명", "규격", "수량", "판매단가", "품목금액"}) {
             items.addCell(cell(header, label, Element.ALIGN_CENTER));
         }
-        int no = 1;
         for (OrderItem line : order.getItems()) {
-            items.addCell(cell(String.valueOf(no++), body, Element.ALIGN_CENTER));
             items.addCell(cell(line.getItem().getItemName(), body, Element.ALIGN_LEFT));
             items.addCell(cell(nullToEmpty(line.getItem().getSpec()), body, Element.ALIGN_LEFT));
             items.addCell(cell(MONEY.format(line.getQuantity()), body, Element.ALIGN_RIGHT));
@@ -111,7 +110,7 @@ public class DeliveryDocumentService {
             items.addCell(cell(MONEY.format(line.getLineAmount()), body, Element.ALIGN_RIGHT));
         }
         PdfPCell totalLabel = cell("총 납품금액", label, Element.ALIGN_CENTER);
-        totalLabel.setColspan(5);
+        totalLabel.setColspan(4);
         items.addCell(totalLabel);
         items.addCell(cell(MONEY.format(order.getTotalAmount()), label, Element.ALIGN_RIGHT));
         document.add(items);

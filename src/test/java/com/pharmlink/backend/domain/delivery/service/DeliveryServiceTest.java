@@ -218,6 +218,13 @@ class DeliveryServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.SALE_CREATION_FAILED);
     }
 
+    @Test
+    @DisplayName("매출일: UTC 날짜가 아니라 KST 날짜 (UTC 15:00 이후 완료는 KST 다음 날)")
+    void saleDateUsesKstDate() {
+        assertThat(DeliveryService.saleDateOf(Instant.parse("2026-09-10T14:59:59Z"))).isEqualTo(LocalDate.of(2026, 9, 10));
+        assertThat(DeliveryService.saleDateOf(Instant.parse("2026-09-10T15:00:00Z"))).isEqualTo(LocalDate.of(2026, 9, 11));
+    }
+
     // 명세 9.2·9.4 예시: 타이레놀 10 × 5,000(원가 3,500) + 베아제 5 × 15,000(원가 10,500) = 125,000 / 원가 87,500
     private static Delivery waitingDelivery() {
         BusinessPartner customer = BusinessPartner.create(PartnerType.CUSTOMER, "행복약국", "123-45-67890",
