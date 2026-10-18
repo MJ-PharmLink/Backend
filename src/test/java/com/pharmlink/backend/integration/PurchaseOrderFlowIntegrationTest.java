@@ -1,5 +1,7 @@
 package com.pharmlink.backend.integration;
 
+import com.pharmlink.backend.domain.delivery.dto.DeliveryCompleteResponse;
+import com.pharmlink.backend.domain.delivery.service.DeliveryService;
 import com.pharmlink.backend.domain.inventory.dto.StockShortage;
 import com.pharmlink.backend.domain.order.dto.OrderApproveResponse;
 import com.pharmlink.backend.domain.order.dto.OrderCreateRequest;
@@ -35,7 +37,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// 매입 → 주문 → 승인 흐름 통합 테스트 (실제 MySQL, ./gradlew test 시 로컬 DB 필요)
+// 매입 → 주문 → 승인 → 출고 → 납품 완료(매출) 흐름 통합 테스트 (실제 MySQL, ./gradlew test 시 로컬 DB 필요)
 // 만료 로트 제외·행 잠금·rollback처럼 DB에서만 확인되는 규칙을 검증한다.
 // 테스트마다 거래처·상품을 새로 만들고 끝나면 관련 행을 모두 지운다 (로컬 DB의 다른 데이터는 건드리지 않음)
 @SpringBootTest
@@ -47,6 +49,8 @@ class PurchaseOrderFlowIntegrationTest {
     private PurchaseService purchaseService;
     @Autowired
     private OrderService orderService;
+    @Autowired
+    private DeliveryService deliveryService;
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -71,6 +75,7 @@ class PurchaseOrderFlowIntegrationTest {
             jdbc.update("delete from purchase_items where item_id in (" + items + ")", ids);
         }
         jdbc.update("delete from purchases where partner_id = ?", supplierId);
+        jdbc.update("delete from sales where partner_id = ?", customerId);
         jdbc.update("delete from deliveries where order_id in (select order_id from orders where partner_id = ?)",
                 customerId);
         jdbc.update("delete from order_items where order_id in (select order_id from orders where partner_id = ?)",
@@ -208,6 +213,74 @@ class PurchaseOrderFlowIntegrationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_ORDER_STATUS);
         assertThat(inventoryQuantity(itemA)).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("승인 → 출고 → 납품 완료: 재고는 그대로, 매출 1건(주문 스냅샷 금액·마진율·KST 매출일·주문 거래처) 생성")
+    void shipAndCompleteCreatesSale() {
+        Long itemA = insertItem();
+        purchase(TODAY, line(itemA, 10, "L1", TODAY.plusDays(60)));
+        Long orderId = order(itemA, 4);
+        Long deliveryId = orderService.approveOrder(orderId, userId).deliveryId();
+
+        deliveryService.ship(deliveryId);
+        assertThat(inventoryQuantity(itemA)).isEqualTo(6);
+        DeliveryCompleteResponse response = deliveryService.complete(deliveryId);
+
+        assertThat(inventoryQuantity(itemA)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("select status from deliveries where delivery_id = ?", String.class, deliveryId))
+                .isEqualTo("DELIVERED");
+        Map<String, Object> sale = jdbc.queryForMap("select * from sales where delivery_id = ?", deliveryId);
+        assertThat(sale.get("sale_id")).isEqualTo(response.saleId());
+        assertThat(((Number) sale.get("order_id")).longValue()).isEqualTo(orderId);
+        assertThat(((Number) sale.get("partner_id")).longValue()).isEqualTo(customerId);
+        // 테스트 상품 단가 1,500 / 원가 1,000 × 4개
+        assertThat(((Number) sale.get("sales_amount")).longValue()).isEqualTo(6_000L);
+        assertThat(((Number) sale.get("cost_amount")).longValue()).isEqualTo(4_000L);
+        assertThat(((Number) sale.get("margin_amount")).longValue()).isEqualTo(2_000L);
+        assertThat(sale.get("margin_rate").toString()).isEqualTo("33.33");
+        assertThat(sale.get("sale_date").toString())
+                .isEqualTo(LocalDate.ofInstant(response.deliveredAt(), ZoneId.of("Asia/Seoul")).toString());
+    }
+
+    @Test
+    @DisplayName("납품 완료: 매출이 이미 있으면 409 SALE_ALREADY_RECORDED, 납품은 SHIPPED 그대로·매출 1건 유지")
+    void completeWithExistingSaleKeepsShipped() {
+        Long itemA = insertItem();
+        purchase(TODAY, line(itemA, 10, "L1", TODAY.plusDays(60)));
+        Long orderId = order(itemA, 2);
+        Long deliveryId = orderService.approveOrder(orderId, userId).deliveryId();
+        deliveryService.ship(deliveryId);
+        // 정상 흐름에서는 생길 수 없어서 SQL로 매출을 먼저 넣는다
+        jdbc.update("""
+                insert into sales (order_id, delivery_id, partner_id, sales_amount, cost_amount, margin_amount,
+                                   margin_rate, sale_date) values (?, ?, ?, 0, 0, 0, 0, ?)""",
+                orderId, deliveryId, customerId, TODAY);
+
+        assertThatThrownBy(() -> deliveryService.complete(deliveryId))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SALE_ALREADY_RECORDED);
+        assertThat(jdbc.queryForObject("select status from deliveries where delivery_id = ?", String.class, deliveryId))
+                .isEqualTo("SHIPPED");
+        assertThat(count("select count(*) from sales where delivery_id = ?", deliveryId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("동시 납품 완료: 같은 납품을 두 번 동시에 완료하면 1건 성공·1건 409, 매출은 1건만")
+    void concurrentCompletesCreateOneSale() throws Exception {
+        Long itemA = insertItem();
+        purchase(TODAY, line(itemA, 10, "L1", TODAY.plusDays(60)));
+        Long deliveryId = orderService.approveOrder(order(itemA, 3), userId).deliveryId();
+        deliveryService.ship(deliveryId);
+
+        List<Object> results = runConcurrently(
+                () -> deliveryService.complete(deliveryId),
+                () -> deliveryService.complete(deliveryId));
+
+        assertThat(results).filteredOn(DeliveryCompleteResponse.class::isInstance).hasSize(1);
+        assertThat(results).filteredOn(r -> r instanceof BusinessException e
+                && e.getErrorCode() == ErrorCode.INVALID_DELIVERY_STATUS).hasSize(1);
+        assertThat(count("select count(*) from sales where delivery_id = ?", deliveryId)).isEqualTo(1);
     }
 
     // 두 작업을 최대한 같은 순간에 시작시키고, 각 결과(반환값 또는 예외)를 순서대로 돌려준다
