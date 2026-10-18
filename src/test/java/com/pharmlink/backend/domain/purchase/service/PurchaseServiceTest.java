@@ -30,6 +30,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -50,6 +51,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -174,6 +176,48 @@ class PurchaseServiceTest {
     }
 
     @Test
+    @DisplayName("등록: 재고 행은 요청 순서와 관계없이 item_id 순으로 잠그고(승인과 같은 순서), 매입 라인·응답은 요청 순서 그대로")
+    void createLocksInventoriesInItemIdOrder() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        Item beazet = item(205L, 10500);
+        givenValidHeader(warehouse, tylenol, beazet);
+        Inventory tylenolInventory = inventory(warehouse, tylenol, 10);
+        Inventory beazetInventory = inventory(warehouse, beazet, 4);
+        ReflectionTestUtils.setField(beazetInventory, "inventoryId", 9L);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L)).willReturn(Optional.of(tylenolInventory));
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 205L)).willReturn(Optional.of(beazetInventory));
+        given(inventoryLotRepository.findByInventoryAndLotNumber(any(), any())).willReturn(Optional.empty());
+        givenLotSaveAssignsId();
+
+        PurchaseCreateResponse response = purchaseService.createPurchase(USER_ID, request(WAREHOUSE_ID,
+                line(205L, 50, "BA2703A", "2027-03-31"), line(101L, 100, "TL2706C", "2027-06-30")));
+
+        InOrder lockOrder = inOrder(inventoryRepository);
+        lockOrder.verify(inventoryRepository).findForUpdate(WAREHOUSE_ID, 101L);
+        lockOrder.verify(inventoryRepository).findForUpdate(WAREHOUSE_ID, 205L);
+        assertThat(response.items()).extracting(PurchaseLineResponse::itemId).containsExactly(205L, 101L);
+        assertThat(response.items()).extracting(PurchaseLineResponse::quantityAfter).containsExactly(54, 110);
+    }
+
+    @Test
+    @DisplayName("등록: 로트번호 앞뒤 공백은 지우고 저장")
+    void createStripsLotNumber() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        givenValidHeader(warehouse, tylenol);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L))
+                .willReturn(Optional.of(inventory(warehouse, tylenol, 0)));
+        given(inventoryLotRepository.findByInventoryAndLotNumber(8L, "TL2706C")).willReturn(Optional.empty());
+        givenLotSaveAssignsId();
+
+        PurchaseCreateResponse response = purchaseService.createPurchase(USER_ID,
+                request(WAREHOUSE_ID, line(101L, 10, "  TL2706C ", "2027-06-30")));
+
+        assertThat(response.items().get(0).lotNumber()).isEqualTo("TL2706C");
+    }
+
+    @Test
     @DisplayName("등록: warehouse_id를 생략하면 기본 창고(is_default = true)에 입고")
     void createWithoutWarehouseUsesDefault() {
         Warehouse warehouse = warehouse();
@@ -250,6 +294,19 @@ class PurchaseServiceTest {
                 line(101L, 10, "TL2706C", "2027-06-30"), line(101L, 5, "TL2706C", "2027-06-30"))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_QUANTITY);
+    }
+
+    @Test
+    @DisplayName("등록: 로트번호가 대소문자·앞뒤 공백만 다른 두 줄도 DB에서는 같은 로트라 422 INVALID_QUANTITY")
+    void createWithDuplicateLotIgnoringCaseAndSpaces() {
+        given(partnerService.getActiveSupplier(PARTNER_ID)).willReturn(supplier());
+        given(warehouseRepository.findById(WAREHOUSE_ID)).willReturn(Optional.of(warehouse()));
+
+        assertThatThrownBy(() -> purchaseService.createPurchase(USER_ID, request(WAREHOUSE_ID,
+                line(101L, 10, "n-a", "2027-06-30"), line(101L, 5, "N-A ", "2027-06-30"))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_QUANTITY);
+        verify(purchaseRepository, never()).save(any());
     }
 
     @Test

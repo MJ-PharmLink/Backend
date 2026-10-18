@@ -23,6 +23,13 @@ class MarginCalculatorTest {
     }
 
     @Test
+    @DisplayName("정확히 반인 값은 올림(HALF_UP): 1/800 = 0.125 → 0.13, -1/800 → -0.13")
+    void marginRateRoundsExactHalfUp() {
+        assertThat(MarginCalculator.marginRate(800, 1)).isEqualTo(new BigDecimal("0.13"));
+        assertThat(MarginCalculator.marginRate(800, -1)).isEqualTo(new BigDecimal("-0.13"));
+    }
+
+    @Test
     @DisplayName("매출이 0이면 0으로 나누지 않고 0.00")
     void marginRateIsZeroWhenSalesIsZero() {
         assertThat(MarginCalculator.marginRate(0, 0)).isEqualTo(new BigDecimal("0.00"));

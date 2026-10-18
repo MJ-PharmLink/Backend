@@ -82,8 +82,7 @@ public class DeliveryService {
         }
         Instant deliveredAt = now();
         delivery.complete(deliveredAt);
-        // 매출일은 납품 완료 시각을 KST로 바꾼 날짜 (UTC 날짜를 그대로 쓰지 않음)
-        Sale sale = Sale.of(delivery, LocalDate.ofInstant(deliveredAt, KST));
+        Sale sale = Sale.of(delivery, saleDateOf(deliveredAt));
         try {
             saleRepository.saveAndFlush(sale);
         } catch (DataIntegrityViolationException e) {
@@ -91,6 +90,11 @@ public class DeliveryService {
             throw new BusinessException(ErrorCode.SALE_CREATION_FAILED);
         }
         return DeliveryCompleteResponse.from(delivery, sale);
+    }
+
+    // 매출일은 납품 완료 시각을 KST로 바꾼 날짜 (UTC 날짜를 그대로 쓰지 않음, DB 설계서 3.16)
+    static LocalDate saleDateOf(Instant deliveredAt) {
+        return LocalDate.ofInstant(deliveredAt, KST);
     }
 
     private Delivery lockDelivery(Long deliveryId) {

@@ -54,6 +54,7 @@ public class OrderService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter ORDER_NUMBER_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final Sort LATEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("orderId"));
+    private static final int ORDER_NUMBER_ATTEMPTS = 3;
 
     private final OrderRepository orderRepository;
     private final ItemRepository itemRepository;
@@ -77,17 +78,22 @@ public class OrderService {
     }
 
     // 주문 등록. 단가는 서버가 상품 마스터에서 스냅샷, 재고는 승인 때 판단
-    // 주문번호는 등록 트랜잭션 안에서 MAX(일련번호)+1로 채번하고, 동시 요청으로 UNIQUE 충돌이 나면 1회 재시도
+    // 주문번호는 등록 트랜잭션 안에서 MAX(일련번호)+1로 채번하고, 동시 요청으로 UNIQUE 충돌이 나면 새 트랜잭션으로 다시 채번
+    // (최대 ORDER_NUMBER_ATTEMPTS회, 그래도 충돌하면 예외를 그대로 올림)
     public OrderCreateResponse createOrder(Long userId, OrderCreateRequest request) {
         BusinessPartner partner = partnerService.getActiveCustomer(request.partnerId());
         List<OrderCreateRequest.Line> lines = validateLines(request.items());
         Map<Long, Item> items = findActiveItems(lines);
 
-        try {
-            return transactionTemplate.execute(status -> save(partner, userId, lines, items));
-        } catch (DataIntegrityViolationException e) {
-            log.warn("주문번호 충돌로 채번을 다시 시도합니다.");
-            return transactionTemplate.execute(status -> save(partner, userId, lines, items));
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return transactionTemplate.execute(status -> save(partner, userId, lines, items));
+            } catch (DataIntegrityViolationException e) {
+                if (attempt == ORDER_NUMBER_ATTEMPTS) {
+                    throw e;
+                }
+                log.warn("주문번호 충돌로 채번을 다시 시도합니다. ({}/{})", attempt, ORDER_NUMBER_ATTEMPTS);
+            }
         }
     }
 
@@ -139,9 +145,9 @@ public class OrderService {
             throw new BusinessException(ErrorCode.INVALID_ORDER_STATUS);
         }
         String reason = request == null || !StringUtils.hasText(request.cancelReason()) ? null : request.cancelReason();
-        order.cancel(userId, reason, Instant.now());
-        // cancelled_at·updated_at을 응답에 바로 반영하기 위해 flush
-        return OrderCancelResponse.from(orderRepository.saveAndFlush(order));
+        // DB TIMESTAMP(초 단위)에 저장되는 값과 응답 값을 맞추기 위해 초 미만은 버린다 (승인과 동일)
+        order.cancel(userId, reason, Instant.now().truncatedTo(ChronoUnit.SECONDS));
+        return OrderCancelResponse.from(order);
     }
 
     private OrderCreateResponse save(BusinessPartner partner, Long userId,

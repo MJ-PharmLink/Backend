@@ -24,13 +24,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
@@ -76,17 +78,26 @@ public class PurchaseService {
         // reference_id(purchase_id)를 재고 이력에 남기기 위해 헤더를 먼저 저장
         Purchase purchase = purchaseRepository.save(
                 Purchase.create(supplier, warehouse, request.purchaseDate(), userId));
-        List<Integer> quantityAfter = new ArrayList<>();
-        for (PurchaseCreateRequest.Line line : request.items()) {
-            Item item = items.get(line.itemId());
-            InventoryLot lot = inventoryStockService.receivePurchase(purchase.getPurchaseId(), warehouse, item,
-                    line.lotNumber(), line.expiryDate(), line.quantity(), userId);
-            purchase.addItem(item, lot, line.quantity());
-            quantityAfter.add(lot.getInventory().getQuantity());
+        // 주문 승인(8.4)과 같은 item_id 순으로 재고 행을 잠가 동시 매입·승인 간 교착을 피한다
+        // (같은 상품 라인끼리는 요청 순서 유지). 매입 라인과 응답은 요청 순서 그대로
+        List<PurchaseCreateRequest.Line> lines = request.items();
+        List<Integer> lockOrder = IntStream.range(0, lines.size()).boxed()
+                .sorted(Comparator.comparing(i -> lines.get(i).itemId()))
+                .toList();
+        InventoryLot[] lots = new InventoryLot[lines.size()];
+        Integer[] quantityAfter = new Integer[lines.size()];
+        for (int i : lockOrder) {
+            PurchaseCreateRequest.Line line = lines.get(i);
+            lots[i] = inventoryStockService.receivePurchase(purchase.getPurchaseId(), warehouse,
+                    items.get(line.itemId()), line.lotNumber().strip(), line.expiryDate(), line.quantity(), userId);
+            quantityAfter[i] = lots[i].getInventory().getQuantity();
+        }
+        for (int i = 0; i < lines.size(); i++) {
+            purchase.addItem(items.get(lines.get(i).itemId()), lots[i], lines.get(i).quantity());
         }
         // purchase_item_id를 응답에 바로 반영하기 위해 flush
         purchaseRepository.flush();
-        return PurchaseCreateResponse.from(purchase, quantityAfter);
+        return PurchaseCreateResponse.from(purchase, List.of(quantityAfter));
     }
 
     // warehouse_id를 생략하면 기본 창고(is_default = true). 없으면 404 WAREHOUSE_NOT_FOUND
@@ -96,11 +107,13 @@ public class PurchaseService {
     }
 
     // 수량 1 미만 또는 같은 (상품, 로트번호) 중복 → 422 INVALID_QUANTITY
+    // 로트번호는 DB(utf8mb4_unicode_ci)와 같은 기준으로 비교: 앞뒤 공백 제거, 대소문자 무시
     // 유통기한이 매입일 이후가 아니면 → 422 INVALID_EXPIRY_DATE
     private void validateLines(LocalDate purchaseDate, List<PurchaseCreateRequest.Line> lines) {
         Set<String> seen = new HashSet<>();
         for (PurchaseCreateRequest.Line line : lines) {
-            if (line.quantity() < 1 || !seen.add(line.itemId() + ":" + line.lotNumber())) {
+            String lotKey = line.lotNumber().strip().toUpperCase(Locale.ROOT);
+            if (line.quantity() < 1 || !seen.add(line.itemId() + ":" + lotKey)) {
                 throw new BusinessException(ErrorCode.INVALID_QUANTITY);
             }
             if (!line.expiryDate().isAfter(purchaseDate)) {
