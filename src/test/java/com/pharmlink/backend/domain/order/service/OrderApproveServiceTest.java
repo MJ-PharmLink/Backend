@@ -31,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -48,6 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -136,6 +138,30 @@ class OrderApproveServiceTest {
         assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.WAITING);
         assertThat(response.approvedAt()).isNotNull().isEqualTo(order.getApprovedAt());
         assertThat(response.approvedAt().getNano()).isZero();
+    }
+
+    @Test
+    @DisplayName("승인: 주문 라인 순서와 관계없이 재고 행을 item_id 순으로 잠금 (동시 승인·매입 간 교착 방지)")
+    void approveLocksInventoriesInItemIdOrder() {
+        Item tylenol = item(101L, "타이레놀정 500mg");
+        Item beazet = item(205L, "베아제정");
+        Order order = pendingOrder(beazet, 1, tylenol, 1);
+        Inventory tylenolStock = inventory(7L, tylenol, 5);
+        Inventory beazetStock = inventory(8L, beazet, 5);
+        givenPendingOrder(order);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L)).willReturn(Optional.of(tylenolStock));
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 205L)).willReturn(Optional.of(beazetStock));
+        given(inventoryLotRepository.findShippableLots(eq(7L), any()))
+                .willReturn(List.of(lot(tylenolStock, 13L, "2027-03-31", 5)));
+        given(inventoryLotRepository.findShippableLots(eq(8L), any()))
+                .willReturn(List.of(lot(beazetStock, 15L, "2027-03-31", 5)));
+        givenDeliverySaveAssignsId();
+
+        orderService.approveOrder(ORDER_ID, USER_ID);
+
+        InOrder lockOrder = inOrder(inventoryRepository);
+        lockOrder.verify(inventoryRepository).findForUpdate(WAREHOUSE_ID, 101L);
+        lockOrder.verify(inventoryRepository).findForUpdate(WAREHOUSE_ID, 205L);
     }
 
     @Test

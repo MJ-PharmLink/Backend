@@ -122,7 +122,7 @@ class PurchaseOrderFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("재고 부족: 409 INSUFFICIENT_STOCK(만료 로트 제외 가용 수량), 다른 상품 재고·주문 상태·이력·납품 전부 그대로")
+    @DisplayName("재고 부족: 차감 전에 전 상품을 확인해 409 INSUFFICIENT_STOCK(만료 로트 제외 가용 수량), 다른 상품 재고·주문 상태·이력·납품 변화 없음")
     void insufficientStockRollsBackEverything() {
         Long itemA = insertItem();
         Long itemB = insertItem();
@@ -148,6 +148,51 @@ class PurchaseOrderFlowIntegrationTest {
         assertThat(count("select count(*) from inventory_transactions where reference_type = 'ORDER' and reference_id = ?",
                 orderId)).isZero();
         assertThat(count("select count(*) from deliveries where order_id = ?", orderId)).isZero();
+    }
+
+    @Test
+    @DisplayName("승인 rollback: 재고 차감·출고 이력까지 쓴 뒤 납품 생성이 실패하면 재고·로트·이력·주문 상태가 모두 승인 전으로 돌아감")
+    void approveRollsBackDeductionWhenDeliveryInsertFails() {
+        Long itemA = insertItem();
+        Long itemB = insertItem();
+        purchase(TODAY, line(itemA, 10, "A1", TODAY.plusDays(30)), line(itemB, 5, "B1", TODAY.plusDays(30)));
+        Long orderId = order(Map.of(itemA, 4, itemB, 2));
+        // 차감이 끝난 다음 단계(납품 INSERT)에서 uk_del_order 위반이 나도록 같은 주문의 납품을 SQL로 먼저 넣는다
+        jdbc.update("insert into deliveries (order_id, status) values (?, 'WAITING')", orderId);
+
+        assertThatThrownBy(() -> orderService.approveOrder(orderId, userId)).isInstanceOf(Exception.class);
+
+        assertThat(inventoryQuantity(itemA)).isEqualTo(10);
+        assertThat(inventoryQuantity(itemB)).isEqualTo(5);
+        assertThat(lotQuantity(itemA, "A1")).isEqualTo(10);
+        assertThat(lotQuantity(itemB, "B1")).isEqualTo(5);
+        assertThat(count("select count(*) from inventory_transactions where reference_type = 'ORDER' and reference_id = ?",
+                orderId)).isZero();
+        assertThat(jdbc.queryForObject("select status from orders where order_id = ?", String.class, orderId))
+                .isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("동시 매입·승인: 상품 2개를 매입은 [B, A], 승인은 [A, B]로 동시에 처리해도 교착 없이 모두 성공하고 수량이 맞음")
+    void concurrentPurchaseAndApprovalOnTwoItemsDoNotDeadlock() throws Exception {
+        Long itemA = insertItem();
+        Long itemB = insertItem();
+        purchase(TODAY, line(itemA, 100, "A1", TODAY.plusDays(60)), line(itemB, 100, "B1", TODAY.plusDays(60)));
+
+        int rounds = 10;
+        for (int round = 0; round < rounds; round++) {
+            Long orderId = order(Map.of(itemA, 1, itemB, 1));
+            List<Object> results = runConcurrently(
+                    () -> purchaseService.createPurchase(userId, request(TODAY,
+                            line(itemB, 2, "B1", TODAY.plusDays(60)), line(itemA, 2, "A1", TODAY.plusDays(60)))),
+                    () -> orderService.approveOrder(orderId, userId));
+            assertThat(results).as("round %d", round).noneMatch(Throwable.class::isInstance);
+        }
+
+        assertThat(inventoryQuantity(itemA)).isEqualTo(100 + rounds * (2 - 1));
+        assertThat(inventoryQuantity(itemB)).isEqualTo(100 + rounds * (2 - 1));
+        assertThat(lotSum(itemA)).isEqualTo(inventoryQuantity(itemA));
+        assertThat(lotSum(itemB)).isEqualTo(inventoryQuantity(itemB));
     }
 
     @Test
@@ -263,6 +308,32 @@ class PurchaseOrderFlowIntegrationTest {
         assertThat(jdbc.queryForObject("select status from deliveries where delivery_id = ?", String.class, deliveryId))
                 .isEqualTo("SHIPPED");
         assertThat(count("select count(*) from sales where delivery_id = ?", deliveryId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("납품 완료 rollback: 상태를 DELIVERED로 바꾼 뒤 매출 저장이 실패하면 500 SALE_CREATION_FAILED, 납품은 SHIPPED·delivered_at 없음")
+    void completeRollsBackStatusWhenSaleInsertFails() {
+        Long itemA = insertItem();
+        purchase(TODAY, line(itemA, 10, "L1", TODAY.plusDays(60)));
+        Long orderId = order(itemA, 2);
+        Long deliveryId = orderService.approveOrder(orderId, userId).deliveryId();
+        deliveryService.ship(deliveryId);
+        // 매출 INSERT에서 uk_sales_order 위반이 나도록, 같은 주문으로 다른 납품을 가리키는 매출을 SQL로 먼저 넣는다
+        Long otherDeliveryId = orderService.approveOrder(order(itemA, 1), userId).deliveryId();
+        jdbc.update("""
+                insert into sales (order_id, delivery_id, partner_id, sales_amount, cost_amount, margin_amount,
+                                   margin_rate, sale_date) values (?, ?, ?, 0, 0, 0, 0, ?)""",
+                orderId, otherDeliveryId, customerId, TODAY);
+
+        assertThatThrownBy(() -> deliveryService.complete(deliveryId))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SALE_CREATION_FAILED);
+
+        Map<String, Object> delivery = jdbc.queryForMap(
+                "select status, delivered_at from deliveries where delivery_id = ?", deliveryId);
+        assertThat(delivery.get("status")).isEqualTo("SHIPPED");
+        assertThat(delivery.get("delivered_at")).isNull();
+        assertThat(count("select count(*) from sales where delivery_id = ?", deliveryId)).isZero();
     }
 
     @Test

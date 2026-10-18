@@ -93,19 +93,34 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("등록: 주문번호 UNIQUE 충돌이 나면 최신 순번으로 1회 재시도")
-    void createRetriesOnceOnDuplicateOrderNumber() {
+    @DisplayName("등록: 주문번호 UNIQUE 충돌이 연달아 나도 최신 순번으로 다시 채번해 세 번째에 성공")
+    void createRetriesOnDuplicateOrderNumber() {
         given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
         given(itemRepository.findAllById(anyList())).willReturn(List.of(item(101L, 5000, 3500)));
-        given(orderRepository.findMaxSequence()).willReturn(87L, 88L);
+        given(orderRepository.findMaxSequence()).willReturn(87L, 88L, 89L);
         given(orderRepository.saveAndFlush(any(Order.class)))
+                .willThrow(new DataIntegrityViolationException("uk_orders_order_number"))
                 .willThrow(new DataIntegrityViolationException("uk_orders_order_number"))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
         OrderCreateResponse response = orderService.createOrder(USER_ID, request(line(101L, 1)));
 
-        assertThat(response.orderNumber()).endsWith("-0089");
-        verify(orderRepository, times(2)).saveAndFlush(any(Order.class));
+        assertThat(response.orderNumber()).endsWith("-0090");
+        verify(orderRepository, times(3)).saveAndFlush(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("등록: 주문번호 충돌이 세 번 모두 나면 더 시도하지 않고 예외를 올림")
+    void createGivesUpAfterThreeOrderNumberConflicts() {
+        given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
+        given(itemRepository.findAllById(anyList())).willReturn(List.of(item(101L, 5000, 3500)));
+        given(orderRepository.findMaxSequence()).willReturn(87L);
+        given(orderRepository.saveAndFlush(any(Order.class)))
+                .willThrow(new DataIntegrityViolationException("uk_orders_order_number"));
+
+        assertThatThrownBy(() -> orderService.createOrder(USER_ID, request(line(101L, 1))))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        verify(orderRepository, times(3)).saveAndFlush(any(Order.class));
     }
 
     @Test
@@ -163,11 +178,10 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("취소: PENDING 주문은 CANCELLED로 바뀌고 사유·취소자·취소 일시가 저장됨")
+    @DisplayName("취소: PENDING 주문은 CANCELLED로 바뀌고 사유·취소자·취소 일시(초 단위, DB 저장값과 동일)가 저장됨")
     void cancelPendingOrder() {
         Order order = pendingOrder();
         given(orderRepository.findByIdForUpdate(ORDER_ID)).willReturn(Optional.of(order));
-        given(orderRepository.saveAndFlush(order)).willReturn(order);
 
         OrderCancelResponse response = orderService.cancelOrder(ORDER_ID, USER_ID,
                 new OrderCancelRequest("거래처 요청으로 주문 철회"));
@@ -176,16 +190,27 @@ class OrderServiceTest {
         assertThat(response.cancelReason()).isEqualTo("거래처 요청으로 주문 철회");
         assertThat(response.cancelledBy()).isEqualTo(USER_ID);
         assertThat(response.cancelledAt()).isNotNull();
+        assertThat(response.cancelledAt().getNano()).isZero();
     }
 
     @Test
-    @DisplayName("취소: 사유를 비우거나 본문을 생략하면 cancel_reason은 null")
-    void cancelWithoutReason() {
+    @DisplayName("취소: 본문을 생략하면 cancel_reason은 null")
+    void cancelWithoutBody() {
         Order order = pendingOrder();
         given(orderRepository.findByIdForUpdate(ORDER_ID)).willReturn(Optional.of(order));
-        given(orderRepository.saveAndFlush(order)).willReturn(order);
 
         OrderCancelResponse response = orderService.cancelOrder(ORDER_ID, USER_ID, null);
+
+        assertThat(response.cancelReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("취소: 사유가 공백뿐이면 cancel_reason은 null")
+    void cancelWithBlankReason() {
+        Order order = pendingOrder();
+        given(orderRepository.findByIdForUpdate(ORDER_ID)).willReturn(Optional.of(order));
+
+        OrderCancelResponse response = orderService.cancelOrder(ORDER_ID, USER_ID, new OrderCancelRequest("   "));
 
         assertThat(response.cancelReason()).isNull();
     }
