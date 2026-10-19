@@ -266,7 +266,13 @@ class PurchaseOrderFlowIntegrationTest {
         Long itemA = insertItem();
         purchase(TODAY, line(itemA, 10, "L1", TODAY.plusDays(60)));
         Long orderId = order(itemA, 4);
-        Long deliveryId = orderService.approveOrder(orderId, userId).deliveryId();
+        OrderApproveResponse approved = orderService.approveOrder(orderId, userId);
+        Long deliveryId = approved.deliveryId();
+        // DB 설계서 3.13: deliveries.created_at = 주문 승인 시각 (DB 저장값 기준으로 완전히 같아야 함), 응답 approved_at은 초 단위
+        Map<String, Object> times = jdbc.queryForMap("select o.approved_at, d.created_at from orders o "
+                + "join deliveries d on d.order_id = o.order_id where o.order_id = ?", orderId);
+        assertThat(times.get("created_at")).isEqualTo(times.get("approved_at"));
+        assertThat(approved.approvedAt().getNano()).isZero();
 
         deliveryService.ship(deliveryId);
         assertThat(inventoryQuantity(itemA)).isEqualTo(6);

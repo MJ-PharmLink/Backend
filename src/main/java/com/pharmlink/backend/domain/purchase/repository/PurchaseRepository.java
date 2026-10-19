@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.Optional;
 
 public interface PurchaseRepository extends JpaRepository<Purchase, Long> {
@@ -45,4 +46,8 @@ public interface PurchaseRepository extends JpaRepository<Purchase, Long> {
             order by pi.purchaseItemId
             """)
     Optional<Purchase> findDetailById(@Param("purchaseId") Long purchaseId);
+
+    // DB에 저장된 created_at(초 단위). 스칼라 조회라 영속성 컨텍스트가 아닌 DB 값을 읽는다
+    @Query("select x.createdAt from Purchase x where x.purchaseId = :id")
+    Optional<Instant> findCreatedAt(@Param("id") Long id);
 }

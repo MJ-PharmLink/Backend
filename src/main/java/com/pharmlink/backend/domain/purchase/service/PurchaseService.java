@@ -23,6 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -97,7 +98,10 @@ public class PurchaseService {
         }
         // purchase_item_id를 응답에 바로 반영하기 위해 flush
         purchaseRepository.flush();
-        return PurchaseCreateResponse.from(purchase, List.of(quantityAfter));
+        // 응답 created_at은 DB에 저장된 값(초 단위)으로 보내 이후 조회 값과 같게 한다
+        Instant createdAt = purchaseRepository.findCreatedAt(purchase.getPurchaseId())
+                .orElseThrow(() -> new IllegalStateException("방금 저장한 매입의 created_at을 찾을 수 없습니다."));
+        return PurchaseCreateResponse.from(purchase, List.of(quantityAfter), createdAt);
     }
 
     // warehouse_id를 생략하면 기본 창고(is_default = true). 없으면 404 WAREHOUSE_NOT_FOUND
@@ -108,7 +112,7 @@ public class PurchaseService {
 
     // 수량 1 미만 또는 같은 (상품, 로트번호) 중복 → 422 INVALID_QUANTITY
     // 로트번호는 DB(utf8mb4_unicode_ci)와 같은 기준으로 비교: 앞뒤 공백 제거, 대소문자 무시
-    // 유통기한이 매입일 이후가 아니면 → 422 INVALID_EXPIRY_DATE
+    // 유통기한이 매입일 이전이면 → 422 INVALID_EXPIRY_DATE (명세 10.2 오류표, 유통기한은 당일까지 유효하므로 같은 날은 허용)
     private void validateLines(LocalDate purchaseDate, List<PurchaseCreateRequest.Line> lines) {
         Set<String> seen = new HashSet<>();
         for (PurchaseCreateRequest.Line line : lines) {
@@ -116,7 +120,7 @@ public class PurchaseService {
             if (line.quantity() < 1 || !seen.add(line.itemId() + ":" + lotKey)) {
                 throw new BusinessException(ErrorCode.INVALID_QUANTITY);
             }
-            if (!line.expiryDate().isAfter(purchaseDate)) {
+            if (line.expiryDate().isBefore(purchaseDate)) {
                 throw new BusinessException(ErrorCode.INVALID_EXPIRY_DATE);
             }
         }

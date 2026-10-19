@@ -138,6 +138,8 @@ class OrderApproveServiceTest {
         assertThat(response.deliveryStatus()).isEqualTo(DeliveryStatus.WAITING);
         assertThat(response.approvedAt()).isNotNull().isEqualTo(order.getApprovedAt());
         assertThat(response.approvedAt().getNano()).isZero();
+        // DB 설계서 3.13: 납품 생성 시각을 승인 시각과 같은 값으로 맞춘다
+        verify(deliveryRepository).updateCreatedAt(DELIVERY_ID, response.approvedAt());
     }
 
     @Test
@@ -189,7 +191,7 @@ class OrderApproveServiceTest {
         assertThat(tylenolStock.getQuantity()).isEqualTo(6);
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
         verify(inventoryTransactionRepository, never()).save(any());
-        verify(deliveryRepository, never()).save(any());
+        verify(deliveryRepository, never()).saveAndFlush(any());
     }
 
     @Test
@@ -244,6 +246,22 @@ class OrderApproveServiceTest {
     }
 
     @Test
+    @DisplayName("승인: 재고 행 잠금이 대기 시간 초과·교착으로 실패하면 500 INVENTORY_UPDATE_FAILED, 승인·납품 생성 안 함")
+    void approveWhenInventoryLockFails() {
+        Item tylenol = item(101L, "타이레놀정 500mg");
+        Order order = pendingOrder(tylenol, 5, null, 0);
+        givenPendingOrder(order);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L))
+                .willThrow(new org.springframework.dao.CannotAcquireLockException("Deadlock found"));
+
+        assertThatThrownBy(() -> orderService.approveOrder(ORDER_ID, USER_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVENTORY_UPDATE_FAILED);
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
+        verify(deliveryRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     @DisplayName("승인: 재고 합계가 로트 합계보다 작아 음수가 되면 500 INVENTORY_UPDATE_FAILED")
     void approveFailsWhenInventoryTotalIsInconsistent() {
         Item tylenol = item(101L, "타이레놀정 500mg");
@@ -257,7 +275,7 @@ class OrderApproveServiceTest {
         assertThatThrownBy(() -> orderService.approveOrder(ORDER_ID, USER_ID))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVENTORY_UPDATE_FAILED);
-        verify(deliveryRepository, never()).save(any());
+        verify(deliveryRepository, never()).saveAndFlush(any());
     }
 
     private void givenPendingOrder(Order order) {
@@ -266,7 +284,7 @@ class OrderApproveServiceTest {
     }
 
     private void givenDeliverySaveAssignsId() {
-        given(deliveryRepository.save(any(Delivery.class))).willAnswer(invocation -> {
+        given(deliveryRepository.saveAndFlush(any(Delivery.class))).willAnswer(invocation -> {
             Delivery delivery = invocation.getArgument(0);
             ReflectionTestUtils.setField(delivery, "deliveryId", DELIVERY_ID);
             return delivery;

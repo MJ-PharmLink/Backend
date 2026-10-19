@@ -19,13 +19,13 @@ public record PurchaseCreateResponse(
         Long createdBy,
         Instant createdAt
 ) {
-    // quantityAfter는 라인 순서대로 입고 직후의 재고 수량
-    public static PurchaseCreateResponse from(Purchase purchase, List<Integer> quantityAfter) {
+    // quantityAfter는 라인 순서대로 입고 직후의 재고 수량, createdAt은 DB에 저장된 값
+    public static PurchaseCreateResponse from(Purchase purchase, List<Integer> quantityAfter, Instant createdAt) {
         List<PurchaseLineResponse> lines = IntStream.range(0, purchase.getItems().size())
                 .mapToObj(i -> PurchaseLineResponse.from(purchase.getItems().get(i), quantityAfter.get(i)))
                 .toList();
         return new PurchaseCreateResponse(purchase.getPurchaseId(), purchase.getPartner().getPartnerId(),
                 purchase.getPartner().getName(), purchase.getWarehouse().getWarehouseId(), purchase.getPurchaseDate(),
-                lines, purchase.getTotalAmount(), purchase.getCreatedBy(), purchase.getCreatedAt());
+                lines, purchase.getTotalAmount(), purchase.getCreatedBy(), createdAt);
     }
 }

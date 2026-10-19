@@ -219,6 +219,19 @@ class DeliveryServiceTest {
     }
 
     @Test
+    @DisplayName("납품 완료: 매출 저장이 잠금 실패 등 다른 DB 오류로 실패해도 500 SALE_CREATION_FAILED")
+    void completeFailsWhenSaleInsertHitsLockFailure() {
+        given(deliveryRepository.findByIdForUpdate(DELIVERY_ID)).willReturn(Optional.of(shippedDelivery()));
+        given(saleRepository.existsByDeliveryId(DELIVERY_ID)).willReturn(false);
+        given(saleRepository.saveAndFlush(any(Sale.class)))
+                .willThrow(new org.springframework.dao.CannotAcquireLockException("Lock wait timeout exceeded"));
+
+        assertThatThrownBy(() -> deliveryService.complete(DELIVERY_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SALE_CREATION_FAILED);
+    }
+
+    @Test
     @DisplayName("매출일: UTC 날짜가 아니라 KST 날짜 (UTC 15:00 이후 완료는 KST 다음 날)")
     void saleDateUsesKstDate() {
         assertThat(DeliveryService.saleDateOf(Instant.parse("2026-09-10T14:59:59Z"))).isEqualTo(LocalDate.of(2026, 9, 10));

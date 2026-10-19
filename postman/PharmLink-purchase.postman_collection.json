@@ -947,7 +947,7 @@
                     ]
                 },
                 {
-                    "name": "10.2 유통기한 = 매입일 → 422 INVALID_EXPIRY_DATE",
+                    "name": "10.2 유통기한 < 매입일 → 422 INVALID_EXPIRY_DATE",
                     "request": {
                         "method": "POST",
                         "header": [
@@ -979,7 +979,7 @@
                         },
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"partner_id\": {{supplier_id}},\n  \"warehouse_id\": 1,\n  \"purchase_date\": \"2026-10-15\",\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 100, \"lot_number\": \"EXP{{run_id}}\", \"expiry_date\": \"2026-10-15\" }\n  ]\n}",
+                            "raw": "{\n  \"partner_id\": {{supplier_id}},\n  \"warehouse_id\": 1,\n  \"purchase_date\": \"2026-10-15\",\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 100, \"lot_number\": \"EXP{{run_id}}\", \"expiry_date\": \"2026-10-14\" }\n  ]\n}",
                             "options": {
                                 "raw": {
                                     "language": "json"

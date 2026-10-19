@@ -55,4 +55,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query(value = "select coalesce(max(cast(substring(order_number, 14) as unsigned)), 0) from orders",
             nativeQuery = true)
     long findMaxSequence();
+
+    // DB에 저장된 created_at(초 단위). 스칼라 조회라 영속성 컨텍스트가 아닌 DB 값을 읽는다
+    @Query("select x.createdAt from Order x where x.orderId = :id")
+    Optional<Instant> findCreatedAt(@Param("id") Long id);
 }

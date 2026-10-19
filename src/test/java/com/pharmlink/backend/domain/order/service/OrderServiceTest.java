@@ -9,6 +9,7 @@ import com.pharmlink.backend.domain.order.dto.OrderCancelRequest;
 import com.pharmlink.backend.domain.order.dto.OrderCancelResponse;
 import com.pharmlink.backend.domain.order.dto.OrderCreateRequest;
 import com.pharmlink.backend.domain.order.dto.OrderCreateResponse;
+import com.pharmlink.backend.domain.order.dto.OrderDetailResponse;
 import com.pharmlink.backend.domain.order.entity.Order;
 import com.pharmlink.backend.domain.order.entity.OrderStatus;
 import com.pharmlink.backend.domain.order.repository.OrderRepository;
@@ -71,6 +72,9 @@ class OrderServiceTest {
         TransactionTemplate transactionTemplate = new TransactionTemplate(mock(PlatformTransactionManager.class));
         orderService = new OrderService(orderRepository, itemRepository, deliveryRepository, partnerService,
                 warehouseRepository, inventoryStockService, transactionTemplate);
+        // 등록 응답의 created_at은 DB 저장값을 다시 읽는다 (저장하지 않는 테스트에서는 쓰이지 않음)
+        org.mockito.Mockito.lenient().when(orderRepository.findCreatedAt(any()))
+                .thenReturn(Optional.of(java.time.Instant.parse("2026-10-18T10:00:00Z")));
     }
 
     @Test
@@ -93,25 +97,25 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("등록: 주문번호 UNIQUE 충돌이 연달아 나도 최신 순번으로 다시 채번해 세 번째에 성공")
+    @DisplayName("등록: 주문번호 UNIQUE 충돌이 나면 최신 순번으로 다시 채번해 1회 재시도(DB 설계서 7장), 거래처·상품도 재시도 트랜잭션에서 다시 확인")
     void createRetriesOnDuplicateOrderNumber() {
         given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
         given(itemRepository.findAllById(anyList())).willReturn(List.of(item(101L, 5000, 3500)));
-        given(orderRepository.findMaxSequence()).willReturn(87L, 88L, 89L);
+        given(orderRepository.findMaxSequence()).willReturn(87L, 88L);
         given(orderRepository.saveAndFlush(any(Order.class)))
-                .willThrow(new DataIntegrityViolationException("uk_orders_order_number"))
                 .willThrow(new DataIntegrityViolationException("uk_orders_order_number"))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
         OrderCreateResponse response = orderService.createOrder(USER_ID, request(line(101L, 1)));
 
-        assertThat(response.orderNumber()).endsWith("-0090");
-        verify(orderRepository, times(3)).saveAndFlush(any(Order.class));
+        assertThat(response.orderNumber()).endsWith("-0089");
+        verify(orderRepository, times(2)).saveAndFlush(any(Order.class));
+        verify(partnerService, times(2)).getActiveCustomer(PARTNER_ID);
     }
 
     @Test
-    @DisplayName("등록: 주문번호 충돌이 세 번 모두 나면 더 시도하지 않고 예외를 올림")
-    void createGivesUpAfterThreeOrderNumberConflicts() {
+    @DisplayName("등록: 재시도에서도 주문번호가 충돌하면 더 시도하지 않고 예외를 올림 (총 2번 시도)")
+    void createGivesUpAfterRetry() {
         given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
         given(itemRepository.findAllById(anyList())).willReturn(List.of(item(101L, 5000, 3500)));
         given(orderRepository.findMaxSequence()).willReturn(87L);
@@ -120,14 +124,12 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.createOrder(USER_ID, request(line(101L, 1))))
                 .isInstanceOf(DataIntegrityViolationException.class);
-        verify(orderRepository, times(3)).saveAndFlush(any(Order.class));
+        verify(orderRepository, times(2)).saveAndFlush(any(Order.class));
     }
 
     @Test
     @DisplayName("등록: 수량이 1 미만이면 422 INVALID_QUANTITY, 저장하지 않음")
     void createWithZeroQuantity() {
-        given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
-
         assertThatThrownBy(() -> orderService.createOrder(USER_ID, request(line(101L, 0))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_QUANTITY);
@@ -137,8 +139,6 @@ class OrderServiceTest {
     @Test
     @DisplayName("등록: 같은 상품이 두 번 들어오면 422 INVALID_QUANTITY")
     void createWithDuplicateItem() {
-        given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
-
         assertThatThrownBy(() -> orderService.createOrder(USER_ID, request(line(101L, 1), line(101L, 2))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_QUANTITY);
@@ -237,6 +237,79 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.cancelOrder(ORDER_ID, USER_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ORDER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("등록: 응답 created_at은 DB에 저장된 값(초 단위)을 그대로 보냄")
+    void createRespondsWithStoredCreatedAt() {
+        java.time.Instant stored = java.time.Instant.parse("2026-10-18T10:00:01Z");
+        given(partnerService.getActiveCustomer(PARTNER_ID)).willReturn(customer());
+        given(itemRepository.findAllById(anyList())).willReturn(List.of(item(101L, 5000, 3500)));
+        given(orderRepository.findMaxSequence()).willReturn(87L);
+        given(orderRepository.saveAndFlush(any(Order.class))).willAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            ReflectionTestUtils.setField(order, "orderId", ORDER_ID);
+            ReflectionTestUtils.setField(order, "createdAt", java.time.Instant.parse("2026-10-18T10:00:00.700Z"));
+            return order;
+        });
+        given(orderRepository.findCreatedAt(ORDER_ID)).willReturn(Optional.of(stored));
+
+        OrderCreateResponse response = orderService.createOrder(USER_ID, request(line(101L, 1)));
+
+        assertThat(response.createdAt()).isEqualTo(stored);
+    }
+
+    @Test
+    @DisplayName("상세: 라인에 원가(unit_cost) 포함, 납품이 없으면 delivery_id null")
+    void detailIncludesCostAndNullDelivery() {
+        Order order = pendingOrder();
+        order.addItem(item(101L, 5000, 3500), 10);
+        given(orderRepository.findDetailById(ORDER_ID)).willReturn(Optional.of(order));
+        given(deliveryRepository.findDeliveryIdByOrderId(ORDER_ID)).willReturn(Optional.empty());
+
+        OrderDetailResponse response = orderService.getOrder(ORDER_ID);
+
+        assertThat(response.items()).extracting("unitPrice", "unitCost", "lineAmount")
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(5000L, 3500L, 50000L));
+        assertThat(response.totalAmount()).isEqualTo(50000L);
+        assertThat(response.deliveryId()).isNull();
+    }
+
+    @Test
+    @DisplayName("상세: 승인된 주문은 연결된 delivery_id를 반환")
+    void detailReturnsDeliveryId() {
+        Order order = pendingOrder();
+        order.addItem(item(101L, 5000, 3500), 1);
+        order.approve(java.time.Instant.parse("2026-10-18T10:00:00Z"));
+        given(orderRepository.findDetailById(ORDER_ID)).willReturn(Optional.of(order));
+        given(deliveryRepository.findDeliveryIdByOrderId(ORDER_ID)).willReturn(Optional.of(35L));
+
+        assertThat(orderService.getOrder(ORDER_ID).deliveryId()).isEqualTo(35L);
+    }
+
+    @Test
+    @DisplayName("상세: 없는 주문이면 404 ORDER_NOT_FOUND")
+    void detailOfUnknownOrder() {
+        given(orderRepository.findDetailById(ORDER_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getOrder(ORDER_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ORDER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("취소: 이미 취소된 주문을 다시 취소하면 409 INVALID_ORDER_STATUS, 기존 취소 정보 유지")
+    void cancelCancelledOrder() {
+        Order order = pendingOrder();
+        java.time.Instant cancelledAt = java.time.Instant.parse("2026-10-18T10:00:00Z");
+        order.cancel(USER_ID, "첫 취소", cancelledAt);
+        given(orderRepository.findByIdForUpdate(ORDER_ID)).willReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.cancelOrder(ORDER_ID, USER_ID, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_ORDER_STATUS);
+        assertThat(order.getCancelReason()).isEqualTo("첫 취소");
+        assertThat(order.getCancelledAt()).isEqualTo(cancelledAt);
     }
 
     private static OrderCreateRequest request(OrderCreateRequest.Line... lines) {

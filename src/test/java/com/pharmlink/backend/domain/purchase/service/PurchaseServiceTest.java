@@ -91,6 +91,9 @@ class PurchaseServiceTest {
                 inventoryLotRepository, inventoryTransactionRepository);
         purchaseService = new PurchaseService(purchaseRepository, warehouseRepository, itemRepository, partnerService,
                 inventoryStockService);
+        // 등록 응답의 created_at은 DB 저장값을 다시 읽는다 (저장하지 않는 테스트에서는 쓰이지 않음)
+        org.mockito.Mockito.lenient().when(purchaseRepository.findCreatedAt(any()))
+                .thenReturn(Optional.of(java.time.Instant.parse("2026-10-18T10:00:00Z")));
     }
 
     @Test
@@ -259,16 +262,86 @@ class PurchaseServiceTest {
     }
 
     @Test
-    @DisplayName("등록: 유통기한이 매입일과 같거나 이전이면 422 INVALID_EXPIRY_DATE, 저장하지 않음")
-    void createWithExpiryNotAfterPurchaseDate() {
+    @DisplayName("등록: 유통기한이 매입일 이전이면 422 INVALID_EXPIRY_DATE, 저장하지 않음 (명세 10.2 오류표)")
+    void createWithExpiryBeforePurchaseDate() {
         given(partnerService.getActiveSupplier(PARTNER_ID)).willReturn(supplier());
         given(warehouseRepository.findById(WAREHOUSE_ID)).willReturn(Optional.of(warehouse()));
 
         assertThatThrownBy(() -> purchaseService.createPurchase(USER_ID,
-                request(WAREHOUSE_ID, line(101L, 10, "TL2706C", PURCHASE_DATE.toString()))))
+                request(WAREHOUSE_ID, line(101L, 10, "TL2706C", PURCHASE_DATE.minusDays(1).toString()))))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.INVALID_EXPIRY_DATE);
         verify(purchaseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("등록: 유통기한이 매입일과 같은 날이면 허용 (유통기한은 당일까지 유효, 명세 1.5·10.2)")
+    void createWithExpiryOnPurchaseDate() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        givenValidHeader(warehouse, tylenol);
+        Inventory inventory = inventory(warehouse, tylenol, 0);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L)).willReturn(Optional.of(inventory));
+        given(inventoryLotRepository.findByInventoryAndLotNumber(8L, "SAME")).willReturn(Optional.empty());
+        givenLotSaveAssignsId();
+
+        PurchaseCreateResponse response = purchaseService.createPurchase(USER_ID,
+                request(WAREHOUSE_ID, line(101L, 5, "SAME", PURCHASE_DATE.toString())));
+
+        assertThat(response.items().get(0).expiryDate()).isEqualTo(PURCHASE_DATE);
+        assertThat(inventory.getQuantity()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("등록: 입고 후 재고가 INT 범위를 넘으면 500 INVENTORY_UPDATE_FAILED, 재고·로트 변경 없음")
+    void createOverflowingStock() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        givenValidHeader(warehouse, tylenol);
+        Inventory inventory = inventory(warehouse, tylenol, Integer.MAX_VALUE - 1);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L)).willReturn(Optional.of(inventory));
+
+        assertThatThrownBy(() -> purchaseService.createPurchase(USER_ID,
+                request(WAREHOUSE_ID, line(101L, 2, "BIG", "2027-06-30"))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVENTORY_UPDATE_FAILED);
+        assertThat(inventory.getQuantity()).isEqualTo(Integer.MAX_VALUE - 1);
+        verify(inventoryLotRepository, never()).save(any());
+        verify(inventoryTransactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("등록: 재고 행 잠금이 대기 시간 초과·교착으로 실패하면 500 INVENTORY_UPDATE_FAILED")
+    void createWhenInventoryLockFails() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        givenValidHeader(warehouse, tylenol);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L))
+                .willThrow(new org.springframework.dao.CannotAcquireLockException("Lock wait timeout exceeded"));
+
+        assertThatThrownBy(() -> purchaseService.createPurchase(USER_ID,
+                request(WAREHOUSE_ID, line(101L, 1, "LOCK", "2027-06-30"))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.INVENTORY_UPDATE_FAILED);
+    }
+
+    @Test
+    @DisplayName("등록: 응답 created_at은 DB에 저장된 값(초 단위)을 그대로 보냄")
+    void createRespondsWithStoredCreatedAt() {
+        Warehouse warehouse = warehouse();
+        Item tylenol = item(101L, 3500);
+        givenValidHeader(warehouse, tylenol);
+        Inventory inventory = inventory(warehouse, tylenol, 0);
+        given(inventoryRepository.findForUpdate(WAREHOUSE_ID, 101L)).willReturn(Optional.of(inventory));
+        given(inventoryLotRepository.findByInventoryAndLotNumber(8L, "CA")).willReturn(Optional.empty());
+        givenLotSaveAssignsId();
+        java.time.Instant stored = java.time.Instant.parse("2026-10-18T10:00:01Z");
+        given(purchaseRepository.findCreatedAt(PURCHASE_ID)).willReturn(Optional.of(stored));
+
+        PurchaseCreateResponse response = purchaseService.createPurchase(USER_ID,
+                request(WAREHOUSE_ID, line(101L, 1, "CA", "2027-06-30")));
+
+        assertThat(response.createdAt()).isEqualTo(stored);
     }
 
     @Test
