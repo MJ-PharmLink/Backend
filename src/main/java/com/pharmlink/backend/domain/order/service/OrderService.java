@@ -54,7 +54,8 @@ public class OrderService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter ORDER_NUMBER_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final Sort LATEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("orderId"));
-    private static final int ORDER_NUMBER_ATTEMPTS = 3;
+    // DB 설계서 7장: UNIQUE(order_number) 충돌 시 최신 최대 순번으로 1회 재시도 → 최대 2번 시도
+    private static final int ORDER_NUMBER_ATTEMPTS = 2;
 
     private final OrderRepository orderRepository;
     private final ItemRepository itemRepository;
@@ -78,16 +79,12 @@ public class OrderService {
     }
 
     // 주문 등록. 단가는 서버가 상품 마스터에서 스냅샷, 재고는 승인 때 판단
-    // 주문번호는 등록 트랜잭션 안에서 MAX(일련번호)+1로 채번하고, 동시 요청으로 UNIQUE 충돌이 나면 새 트랜잭션으로 다시 채번
-    // (최대 ORDER_NUMBER_ATTEMPTS회, 그래도 충돌하면 예외를 그대로 올림)
+    // 주문번호는 등록 트랜잭션 안에서 MAX(일련번호)+1로 채번하고, 동시 요청으로 UNIQUE 충돌이 나면 새 트랜잭션으로 1회 재시도
+    // 거래처·상품 확인과 저장을 같은 트랜잭션에서 수행해(재시도 때도 다시 확인) 확인과 저장 사이의 경쟁 구간을 줄인다
     public OrderCreateResponse createOrder(Long userId, OrderCreateRequest request) {
-        BusinessPartner partner = partnerService.getActiveCustomer(request.partnerId());
-        List<OrderCreateRequest.Line> lines = validateLines(request.items());
-        Map<Long, Item> items = findActiveItems(lines);
-
         for (int attempt = 1; ; attempt++) {
             try {
-                return transactionTemplate.execute(status -> save(partner, userId, lines, items));
+                return transactionTemplate.execute(status -> save(request.partnerId(), userId, request.items()));
             } catch (DataIntegrityViolationException e) {
                 if (attempt == ORDER_NUMBER_ATTEMPTS) {
                     throw e;
@@ -129,9 +126,12 @@ public class OrderService {
                 .toList();
         inventoryStockService.shipOrder(order.getOrderId(), warehouse, requests, userId);
 
-        // DB TIMESTAMP(초 단위)에 저장되는 값과 응답 값을 맞추기 위해 초 미만은 버린다
-        order.approve(Instant.now().truncatedTo(ChronoUnit.SECONDS));
-        Delivery delivery = deliveryRepository.save(Delivery.create(order));
+        // DB TIMESTAMP(초 단위)에 저장되는 값과 응답 값을 맞추기 위해 초 미만은 버린다 (출고·납품·취소 시각과 같은 방식)
+        Instant approvedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        order.approve(approvedAt);
+        Delivery delivery = deliveryRepository.saveAndFlush(Delivery.create(order));
+        // DB 설계서 3.13: deliveries.created_at = 주문 승인 시각. 자동 기록값(초 미만 반올림)을 승인 시각으로 덮어쓴다
+        deliveryRepository.updateCreatedAt(delivery.getDeliveryId(), approvedAt);
         return OrderApproveResponse.from(order, delivery);
     }
 
@@ -150,14 +150,21 @@ public class OrderService {
         return OrderCancelResponse.from(order);
     }
 
-    private OrderCreateResponse save(BusinessPartner partner, Long userId,
-                                     List<OrderCreateRequest.Line> lines, Map<Long, Item> items) {
+    // 판정 순서는 매입(10.2)과 같게: 거래처 → 라인(수량·중복) → 상품
+    private OrderCreateResponse save(Long partnerId, Long userId, List<OrderCreateRequest.Line> requestLines) {
+        BusinessPartner partner = partnerService.getActiveCustomer(partnerId);
+        List<OrderCreateRequest.Line> lines = validateLines(requestLines);
+        Map<Long, Item> items = findActiveItems(lines);
         Order order = Order.create(nextOrderNumber(), partner, userId);
         for (OrderCreateRequest.Line line : lines) {
             order.addItem(items.get(line.itemId()), line.quantity());
         }
         // UNIQUE(order_number) 충돌을 트랜잭션 안에서 바로 감지하기 위해 flush
-        return OrderCreateResponse.from(orderRepository.saveAndFlush(order));
+        Order saved = orderRepository.saveAndFlush(order);
+        // 응답 created_at은 DB에 저장된 값(초 단위)으로 보내 이후 조회 값과 같게 한다
+        Instant createdAt = orderRepository.findCreatedAt(saved.getOrderId())
+                .orElseThrow(() -> new IllegalStateException("방금 저장한 주문의 created_at을 찾을 수 없습니다."));
+        return OrderCreateResponse.from(saved, createdAt);
     }
 
     // ORD-YYYYMMDD-NNNN. NNNN은 전체 일련번호(날짜가 바뀌어도 리셋 없음), 9999를 넘으면 자릿수가 늘어남

@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -55,4 +56,9 @@ public interface DeliveryRepository extends JpaRepository<Delivery, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select d from Delivery d where d.deliveryId = :deliveryId")
     Optional<Delivery> findByIdForUpdate(@Param("deliveryId") Long deliveryId);
+
+    // 주문 승인(8.4)에서 납품 생성 시각을 승인 시각과 같게 맞춘다 (DB 설계서 3.13)
+    @Modifying(flushAutomatically = true)
+    @Query("update Delivery d set d.createdAt = :createdAt where d.deliveryId = :deliveryId")
+    int updateCreatedAt(@Param("deliveryId") Long deliveryId, @Param("createdAt") Instant createdAt);
 }

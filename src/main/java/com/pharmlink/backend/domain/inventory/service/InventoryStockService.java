@@ -15,6 +15,7 @@ import com.pharmlink.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,18 +44,35 @@ public class InventoryStockService {
 
     // 매입 입고: 재고 행 잠금(없으면 quantity=0으로 생성) → 로트 생성 또는 합산 → 재고 수량 증가 → 이력(IN, PURCHASE)
     // 반환한 로트의 inventory.quantity가 이 입고 직후의 재고 수량(quantity_after)이다
+    // 잠금 대기 시간 초과·교착은 명세의 500 INVENTORY_UPDATE_FAILED로 응답한다 (10.2, 8.4)
     public InventoryLot receivePurchase(Long purchaseId, Warehouse warehouse, Item item,
                                         String lotNumber, LocalDate expiryDate, int quantity, Long userId) {
-        Inventory inventory = lockOrCreateInventory(warehouse, item);
-        InventoryLot lot = addToLot(inventory, lotNumber, expiryDate, quantity);
-        inventory.increase(quantity);
-        inventoryTransactionRepository.save(InventoryTransaction.purchaseIn(purchaseId, lot, quantity, userId));
-        return lot;
+        try {
+            Inventory inventory = lockOrCreateInventory(warehouse, item);
+            // INT 범위를 넘는 입고는 재고 수량을 표현할 수 없으므로 재고 증가 실패로 처리
+            if ((long) inventory.getQuantity() + quantity > Integer.MAX_VALUE) {
+                throw new BusinessException(ErrorCode.INVENTORY_UPDATE_FAILED);
+            }
+            InventoryLot lot = addToLot(inventory, lotNumber, expiryDate, quantity);
+            inventory.increase(quantity);
+            inventoryTransactionRepository.save(InventoryTransaction.purchaseIn(purchaseId, lot, quantity, userId));
+            return lot;
+        } catch (PessimisticLockingFailureException e) {
+            throw lockFailure(e);
+        }
     }
 
     // 주문 출고 (8.4): 상품별 재고 행 잠금 → 가용 재고(만료 로트 제외) 확인 → 전부 충분할 때만 FEFO 순서로 로트 차감
     // → 로트별 이력(OUT, ORDER). 하나라도 부족하면 아무것도 차감하지 않고 409 INSUFFICIENT_STOCK (부족 상품 전부를 details에)
     public void shipOrder(Long orderId, Warehouse warehouse, List<StockRequest> requests, Long userId) {
+        try {
+            ship(orderId, warehouse, requests, userId);
+        } catch (PessimisticLockingFailureException e) {
+            throw lockFailure(e);
+        }
+    }
+
+    private void ship(Long orderId, Warehouse warehouse, List<StockRequest> requests, Long userId) {
         LocalDate today = LocalDate.now(KST);
         // 동시 승인 간 교착을 피하려고 항상 item_id 순으로 재고 행을 잠근다
         List<StockRequest> ordered = requests.stream()
@@ -104,6 +122,11 @@ public class InventoryStockService {
             inventoryTransactionRepository.save(InventoryTransaction.orderOut(orderId, lot, taken, userId));
             remaining -= taken;
         }
+    }
+
+    private static BusinessException lockFailure(PessimisticLockingFailureException e) {
+        log.warn("재고 행 잠금 실패(대기 시간 초과 또는 교착)", e);
+        return new BusinessException(ErrorCode.INVENTORY_UPDATE_FAILED);
     }
 
     private record Shipment(Inventory inventory, List<InventoryLot> lots, int quantity) {

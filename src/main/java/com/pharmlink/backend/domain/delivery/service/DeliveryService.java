@@ -14,7 +14,7 @@ import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -85,7 +85,8 @@ public class DeliveryService {
         Sale sale = Sale.of(delivery, saleDateOf(deliveredAt));
         try {
             saleRepository.saveAndFlush(sale);
-        } catch (DataIntegrityViolationException e) {
+        } catch (DataAccessException e) {
+            // 제약 위반·잠금 실패 등 매출 INSERT가 실패하면 명세 9.4의 500 SALE_CREATION_FAILED (납품 상태 변경도 rollback)
             log.error("매출 생성 실패: deliveryId={}", deliveryId, e);
             throw new BusinessException(ErrorCode.SALE_CREATION_FAILED);
         }

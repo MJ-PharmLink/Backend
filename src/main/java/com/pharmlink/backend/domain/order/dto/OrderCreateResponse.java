@@ -18,10 +18,11 @@ public record OrderCreateResponse(
         Long createdBy,
         Instant createdAt
 ) {
-    public static OrderCreateResponse from(Order order) {
+    // createdAt은 DB에 저장된 값 (자동 기록값의 초 미만은 DB 저장 시 반올림되므로)
+    public static OrderCreateResponse from(Order order, Instant createdAt) {
         return new OrderCreateResponse(order.getOrderId(), order.getOrderNumber(), order.getPartner().getPartnerId(),
                 order.getPartner().getName(), order.getStatus(),
                 order.getItems().stream().map(item -> OrderLineResponse.from(item, false)).toList(),
-                order.getTotalAmount(), order.getCreatedBy(), order.getCreatedAt());
+                order.getTotalAmount(), order.getCreatedBy(), createdAt);
     }
 }
