@@ -1,3 +1,4 @@
+
 package com.pharmlink.backend.domain.item.entity;
 
 import com.pharmlink.backend.global.common.BaseEntity;
@@ -13,57 +14,134 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-// items — 상품(의약품) 마스터. 주문·매입 라인은 등록 시점의 unit_price/unit_cost를 스냅샷으로 복사한다
-// 상품 등록·수정(6장)은 아직 없으므로 지금은 주문·재고에서 조회 용도로만 쓴다
 @Getter
 @Entity
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@Table(name = "items",
-        uniqueConstraints = @UniqueConstraint(name = "uk_items_item_code", columnNames = "item_code"),
+@Table(
+        name = "items",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_items_item_code",
+                        columnNames = "item_code"
+                )
+        },
         indexes = {
                 @Index(name = "idx_items_category", columnList = "category_id"),
                 @Index(name = "idx_items_supplier", columnList = "supplier_id"),
                 @Index(name = "idx_items_name", columnList = "item_name")
-        })
+        }
+)
 public class Item extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "item_id")
     private Long itemId;
 
-    // IT-MED-{CC}-NNNN 자동 채번 또는 사용자 입력 코드
-    @Column(nullable = false, length = 20)
+    @Column(name = "item_code", nullable = false, length = 20)
     private String itemCode;
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "item_name", nullable = false, length = 100)
     private String itemName;
 
-    @Column(nullable = false)
+    @Column(name = "category_id", nullable = false)
     private Long categoryId;
 
-    // 규격 (예: 500mg, 100정)
-    @Column(length = 100)
+    @Column(name = "spec", length = 100)
     private String spec;
 
-    @Column(nullable = false, length = 20)
+    @Column(name = "unit", nullable = false, length = 20)
     private String unit;
 
-    // 원가 (매입 단가)
-    @Column(nullable = false)
+    @Column(name = "unit_cost", nullable = false)
     private Long unitCost;
 
-    // 판매단가
-    @Column(nullable = false)
+    @Column(name = "unit_price", nullable = false)
     private Long unitPrice;
 
-    @Column(nullable = false)
-    private int safetyStock;
+    @Column(name = "safety_stock", nullable = false)
+    private Integer safetyStock;
 
-    // 공급처 (business_partners, SUPPLIER)
-    @Column(nullable = false)
+    @Column(name = "supplier_id", nullable = false)
     private Long supplierId;
 
-    // false = 단종. 단종 상품은 주문 등록·승인 불가
-    @Column(nullable = false)
+    @Column(name = "is_active", nullable = false)
     private boolean isActive;
+
+    // 상품 등록
+    public static Item create(
+            String itemCode,
+            String itemName,
+            Long categoryId,
+            String spec,
+            String unit,
+            Long unitCost,
+            Long unitPrice,
+            Integer safetyStock,
+            Long supplierId
+    ) {
+        Item item = new Item();
+
+        item.itemCode = itemCode;
+        item.itemName = itemName;
+        item.categoryId = categoryId;
+        item.spec = spec;
+        item.unit = unit;
+        item.unitCost = unitCost;
+        item.unitPrice = unitPrice;
+        item.safetyStock = safetyStock;
+        item.supplierId = supplierId;
+        item.isActive = true;
+
+        return item;
+    }
+
+    // 상품 수정: 전달된 값만 변경
+    public void update(
+            String itemName,
+            Long categoryId,
+            String spec,
+            String unit,
+            Long unitCost,
+            Long unitPrice,
+            Integer safetyStock,
+            Long supplierId
+    ) {
+        if (itemName != null) {
+            this.itemName = itemName;
+        }
+
+        if (categoryId != null) {
+            this.categoryId = categoryId;
+        }
+
+        if (spec != null) {
+            this.spec = spec;
+        }
+
+        if (unit != null) {
+            this.unit = unit;
+        }
+
+        if (unitCost != null) {
+            this.unitCost = unitCost;
+        }
+
+        if (unitPrice != null) {
+            this.unitPrice = unitPrice;
+        }
+
+        if (safetyStock != null) {
+            this.safetyStock = safetyStock;
+        }
+
+        if (supplierId != null) {
+            this.supplierId = supplierId;
+        }
+    }
+
+    // 상품 비활성화 (Soft Delete)
+    public void deactivate() {
+        this.isActive = false;
+    }
 }
