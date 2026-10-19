@@ -16,6 +16,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AccessLevel;
@@ -74,7 +75,9 @@ public class Order extends BaseEntity {
     @Column(nullable = false, updatable = false)
     private Long createdBy;
 
+    // 상세·납품서·매출 계산 모두 주문 라인 등록 순서로 다루도록 고정
     @BatchSize(size = 100)
+    @OrderBy("orderItemId")
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();
 
