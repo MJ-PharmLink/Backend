@@ -1,5 +1,9 @@
 package com.pharmlink.backend.integration;
 
+import com.pharmlink.backend.domain.dashboard.dto.DashboardSummaryResponse;
+import com.pharmlink.backend.domain.dashboard.dto.LowStockItemResponse;
+import com.pharmlink.backend.domain.dashboard.dto.RecentOrderResponse;
+import com.pharmlink.backend.domain.dashboard.service.DashboardService;
 import com.pharmlink.backend.domain.delivery.dto.DeliveryCompleteResponse;
 import com.pharmlink.backend.domain.delivery.service.DeliveryService;
 import com.pharmlink.backend.domain.inventory.dto.StockShortage;
@@ -8,6 +12,12 @@ import com.pharmlink.backend.domain.order.dto.OrderCreateRequest;
 import com.pharmlink.backend.domain.order.service.OrderService;
 import com.pharmlink.backend.domain.purchase.dto.PurchaseCreateRequest;
 import com.pharmlink.backend.domain.purchase.service.PurchaseService;
+import com.pharmlink.backend.domain.sales.dto.MarginGroupBy;
+import com.pharmlink.backend.domain.sales.dto.MarginSummaryResponse;
+import com.pharmlink.backend.domain.sales.dto.SaleDetailResponse;
+import com.pharmlink.backend.domain.sales.dto.SaleResponse;
+import com.pharmlink.backend.domain.sales.service.MarginCalculator;
+import com.pharmlink.backend.domain.sales.service.SalesService;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
 import org.junit.jupiter.api.AfterEach;
@@ -51,6 +61,10 @@ class PurchaseOrderFlowIntegrationTest {
     private OrderService orderService;
     @Autowired
     private DeliveryService deliveryService;
+    @Autowired
+    private SalesService salesService;
+    @Autowired
+    private DashboardService dashboardService;
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -358,6 +372,199 @@ class PurchaseOrderFlowIntegrationTest {
         assertThat(results).filteredOn(r -> r instanceof BusinessException e
                 && e.getErrorCode() == ErrorCode.INVALID_DELIVERY_STATUS).hasSize(1);
         assertThat(count("select count(*) from sales where delivery_id = ?", deliveryId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("매출 조회(11.1·11.2): 납품 완료 2건 → 거래처·기간 필터, 최신순, 상세 품목별 금액은 주문 라인 스냅샷")
+    void salesListAndDetail() {
+        Long itemA = insertItem();                                  // 단가 1,500 / 원가 1,000
+        Long itemB = insertItem(1000, 600);                         // 단가 1,000 / 원가 600
+        purchase(TODAY, line(itemA, 20, "A1", TODAY.plusDays(90)), line(itemB, 20, "B1", TODAY.plusDays(90)));
+        Long firstSale = deliver(order(Map.of(itemA, 2)));
+        Long secondSale = deliver(order(Map.of(itemA, 4, itemB, 5)));
+
+        List<SaleResponse> sales = salesService.getSales(customerId, TODAY, TODAY, 1, 20).getContent();
+        assertThat(sales).extracting(SaleResponse::saleId).containsExactly(secondSale, firstSale);
+        SaleResponse second = sales.get(0);
+        // 4 × 1,500 + 5 × 1,000 = 11,000 / 원가 4 × 1,000 + 5 × 600 = 7,000 / 마진 4,000 → 36.36
+        assertThat(second.salesAmount()).isEqualTo(11_000L);
+        assertThat(second.costAmount()).isEqualTo(7_000L);
+        assertThat(second.marginAmount()).isEqualTo(4_000L);
+        assertThat(second.marginRate()).isEqualByComparingTo("36.36");
+        assertThat(second.saleDate()).isEqualTo(TODAY);
+        assertThat(salesService.getSales(customerId, TODAY.plusDays(1), null, 1, 20).getContent()).isEmpty();
+
+        SaleDetailResponse detail = salesService.getSale(secondSale);
+        assertThat(detail.orderNumber()).startsWith("ORD-");
+        assertThat(detail.items()).hasSize(2);
+        SaleDetailResponse.Line lineB = detail.items().stream().filter(l -> l.itemId().equals(itemB)).findFirst()
+                .orElseThrow();
+        assertThat(List.of(lineB.quantity(), lineB.unitPrice(), lineB.unitCost(), lineB.salesAmount(),
+                lineB.costAmount(), lineB.marginAmount())).containsExactly(5, 1000L, 600L, 5000L, 3000L, 2000L);
+        assertThat(detail.items().stream().mapToLong(SaleDetailResponse.Line::salesAmount).sum())
+                .isEqualTo(detail.salesAmount());
+
+        assertThatThrownBy(() -> salesService.getSale(Long.MAX_VALUE))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SALE_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("마진 집계(11.3): summary = 매출 합계, group_by PARTNER·ITEM, 상품 필터는 summary·groups 모두에 적용")
+    void marginSummary() {
+        Long itemA = insertItem();                                  // 마진율 33.33
+        Long itemB = insertItem(1000, 600);                         // 마진율 40.00
+        purchase(TODAY, line(itemA, 20, "A1", TODAY.plusDays(90)), line(itemB, 20, "B1", TODAY.plusDays(90)));
+        deliver(order(Map.of(itemA, 2)));
+        deliver(order(Map.of(itemA, 4, itemB, 5)));
+        // 미승인 주문은 매출이 아니므로 집계에서 빠져야 한다
+        order(Map.of(itemB, 3));
+
+        MarginSummaryResponse total = salesService.getMarginSummary(TODAY, TODAY, null, customerId, null);
+        // 매출 3,000 + 11,000 = 14,000 / 원가 2,000 + 7,000 = 9,000 / 마진 5,000 → 35.71
+        assertThat(total.summary().salesAmount()).isEqualTo(14_000L);
+        assertThat(total.summary().costAmount()).isEqualTo(9_000L);
+        assertThat(total.summary().marginAmount()).isEqualTo(5_000L);
+        assertThat(total.summary().marginRate()).isEqualByComparingTo("35.71");
+        assertThat(total.groups()).isNull();
+
+        MarginSummaryResponse byPartner = salesService.getMarginSummary(TODAY, TODAY, MarginGroupBy.PARTNER,
+                customerId, null);
+        assertThat(byPartner.groups()).hasSize(1).first()
+                .isInstanceOfSatisfying(MarginSummaryResponse.PartnerGroup.class, group -> {
+                    assertThat(group.partnerId()).isEqualTo(customerId);
+                    assertThat(group.salesAmount()).isEqualTo(14_000L);
+                    assertThat(group.marginRate()).isEqualByComparingTo("35.71");
+                });
+
+        MarginSummaryResponse byItem = salesService.getMarginSummary(TODAY, TODAY, MarginGroupBy.ITEM,
+                customerId, null);
+        // 마진 큰 순: A 6 × 500 = 3,000 → B 5 × 400 = 2,000
+        assertThat(byItem.groups()).extracting("itemId").containsExactly(itemA, itemB);
+        assertThat(byItem.groups()).extracting("marginRate").extracting(Object::toString)
+                .containsExactly("33.33", "40.00");
+
+        MarginSummaryResponse onlyB = salesService.getMarginSummary(TODAY, TODAY, MarginGroupBy.ITEM,
+                customerId, itemB);
+        assertThat(onlyB.summary().salesAmount()).isEqualTo(5_000L);
+        assertThat(onlyB.summary().marginRate()).isEqualByComparingTo("40.00");
+        assertThat(onlyB.groups()).extracting("itemId").containsExactly(itemB);
+
+        MarginSummaryResponse empty = salesService.getMarginSummary(TODAY.plusDays(1), TODAY.plusDays(2), null,
+                customerId, null);
+        assertThat(empty.summary().salesAmount()).isZero();
+        assertThat(empty.summary().marginRate()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
+    @DisplayName("대시보드 12.1: 기간 매출·매입·마진 합계와 현재 시점 건수(승인 대기·출고 대기·출고 완료·재고 부족·유통기한 임박·만료)가 늘어난 만큼 반영")
+    void dashboardSummaryReflectsNewData() {
+        DashboardSummaryResponse before = dashboardService.getSummary(TODAY, TODAY);
+        Long itemA = insertItem(1500, 1000, 50);                   // 안전재고 50
+        purchase(TODAY, line(itemA, 10, "SOON", TODAY.plusDays(10)));   // 10개 < 50 → 재고 부족, 10일 뒤 만료 → 임박
+        Long itemB = insertItem(1500, 1000, 0);
+        purchase(TODAY.minusYears(1), line(itemB, 3, "OLD", TODAY.minusDays(1)));  // 이미 만료된 로트만 있음 → 만료
+        deliver(order(Map.of(itemA, 2)));                               // 매출 3,000 / 마진 1,000
+        Long waiting = order(Map.of(itemA, 1));
+        orderService.approveOrder(waiting, userId);                     // 출고 대기 +1
+        order(Map.of(itemA, 1));                                        // 승인 대기 +1
+
+        DashboardSummaryResponse after = dashboardService.getSummary(TODAY, TODAY);
+
+        assertThat(after.period().startDate()).isEqualTo(TODAY);
+        assertThat(after.totalSales() - before.totalSales()).isEqualTo(3_000L);
+        assertThat(after.totalMargin() - before.totalMargin()).isEqualTo(1_000L);
+        // 매입액: 오늘 매입 10 × 1,000 (작년 매입은 기간 밖)
+        assertThat(after.totalPurchases() - before.totalPurchases()).isEqualTo(10_000L);
+        assertThat(after.pendingOrderCount() - before.pendingOrderCount()).isEqualTo(1);
+        assertThat(after.waitingDeliveryCount() - before.waitingDeliveryCount()).isEqualTo(1);
+        assertThat(after.shippedDeliveryCount()).isEqualTo(before.shippedDeliveryCount());
+        assertThat(after.lowStockCount() - before.lowStockCount()).isEqualTo(1);
+        assertThat(after.expiringSoonCount() - before.expiringSoonCount()).isEqualTo(1);
+        assertThat(after.expiredCount() - before.expiredCount()).isEqualTo(1);
+        assertThat(after.marginRate()).isEqualByComparingTo(
+                MarginCalculator.marginRate(after.totalSales(), after.totalMargin()));
+    }
+
+    @Test
+    @DisplayName("대시보드 12.2: 안전재고 이하 활성 상품만, 부족 수량 큰 순, 수량 0은 OUT_OF_STOCK, 단종·안전재고 0 제외")
+    void dashboardLowStockItems() {
+        Long low = insertItem(1500, 1000, 10);
+        purchase(TODAY, line(low, 4, "L1", TODAY.plusDays(200)));          // 부족 6
+        Long out = insertItem(1500, 1000, 30);
+        purchase(TODAY, line(out, 2, "O1", TODAY.plusDays(200)));
+        deliver(order(Map.of(out, 2)));                                    // 0개 → 부족 30, OUT_OF_STOCK
+        Long enough = insertItem(1500, 1000, 5);
+        purchase(TODAY, line(enough, 9, "E1", TODAY.plusDays(200)));       // 안전재고 초과 → 제외
+        Long noSafety = insertItem(1500, 1000, 0);
+        purchase(TODAY, line(noSafety, 1, "N1", TODAY.plusDays(200)));     // 안전재고 0 → 제외
+        Long discontinued = insertItem(1500, 1000, 10);
+        purchase(TODAY, line(discontinued, 1, "D1", TODAY.plusDays(200)));
+        jdbc.update("update items set is_active = false where item_id = ?", discontinued);   // 단종 → 제외
+
+        // 로컬 DB의 다른 재고 부족 행과 섞이므로 모든 페이지를 모은 뒤 이 테스트의 상품만 남긴다
+        List<LowStockItemResponse> all = new ArrayList<>();
+        for (int page = 1; ; page++) {
+            var result = dashboardService.getLowStockItems(null, page, 100);
+            all.addAll(result.getContent());
+            if (!result.hasNext()) {
+                break;
+            }
+        }
+        List<LowStockItemResponse> rows = all.stream().filter(r -> itemIds.contains(r.itemId())).toList();
+
+        assertThat(rows).extracting(LowStockItemResponse::itemId).containsExactly(out, low);
+        assertThat(rows.get(0).stockStatus()).isEqualTo("OUT_OF_STOCK");
+        assertThat(rows.get(0).shortageQuantity()).isEqualTo(30);
+        assertThat(rows.get(1).stockStatus()).isEqualTo("LOW_STOCK");
+        assertThat(List.of(rows.get(1).quantity(), rows.get(1).safetyStock(), rows.get(1).shortageQuantity()))
+                .containsExactly(4, 10, 6);
+        assertThat(dashboardService.getLowStockItems(null, null, null).getSize()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("대시보드 12.3: 최근 주문순, 납품 전 주문은 delivery null, 승인 주문은 납품 상태 포함, limit 범위 1~50")
+    void dashboardRecentOrders() {
+        Long itemA = insertItem();
+        purchase(TODAY, line(itemA, 10, "R1", TODAY.plusDays(90)));
+        Long approved = order(Map.of(itemA, 1));
+        Long deliveryId = orderService.approveOrder(approved, userId).deliveryId();
+        Long pending = order(Map.of(itemA, 1));
+
+        List<RecentOrderResponse> recent = dashboardService.getRecentOrders(2);
+
+        assertThat(recent).extracting(RecentOrderResponse::orderId).containsExactly(pending, approved);
+        assertThat(recent.get(0).deliveryId()).isNull();
+        assertThat(recent.get(0).deliveryStatus()).isNull();
+        assertThat(recent.get(1).deliveryId()).isEqualTo(deliveryId);
+        assertThat(recent.get(1).deliveryStatus().name()).isEqualTo("WAITING");
+        assertThat(recent.get(1).orderStatus().name()).isEqualTo("APPROVED");
+        assertThat(dashboardService.getRecentOrders(null)).hasSizeLessThanOrEqualTo(10);
+        assertThatThrownBy(() -> dashboardService.getRecentOrders(51))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.UNPROCESSABLE_ENTITY);
+        assertThatThrownBy(() -> dashboardService.getRecentOrders(0))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.UNPROCESSABLE_ENTITY);
+    }
+
+    private Long insertItem(long unitPrice, long unitCost, int safetyStock) {
+        Long itemId = insertItem(unitPrice, unitCost);
+        jdbc.update("update items set safety_stock = ? where item_id = ?", safetyStock, itemId);
+        return itemId;
+    }
+
+    // 승인 → 출고 → 납품 완료 후 생성된 매출 ID
+    private Long deliver(Long orderId) {
+        Long deliveryId = orderService.approveOrder(orderId, userId).deliveryId();
+        deliveryService.ship(deliveryId);
+        return deliveryService.complete(deliveryId).saleId();
+    }
+
+    private Long insertItem(long unitPrice, long unitCost) {
+        Long itemId = insertItem();
+        jdbc.update("update items set unit_price = ?, unit_cost = ? where item_id = ?", unitPrice, unitCost, itemId);
+        return itemId;
     }
 
     // 두 작업을 최대한 같은 순간에 시작시키고, 각 결과(반환값 또는 예외)를 순서대로 돌려준다

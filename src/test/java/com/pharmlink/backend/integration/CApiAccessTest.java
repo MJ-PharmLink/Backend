@@ -125,6 +125,108 @@ class CApiAccessTest {
                 .andExpect(jsonPath("$.error.code").value("PURCHASE_NOT_FOUND"));
     }
 
+    @Test
+    @DisplayName("11장: 창고 계정은 매출 목록·마진 집계 403 (매출·마진은 관리자·영업 전용)")
+    void warehouseCannotReadSales() throws Exception {
+        mockMvc.perform(as(Role.WAREHOUSE, get("/api/v1/sales")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+        mockMvc.perform(as(Role.WAREHOUSE, get("/api/v1/margins/summary")
+                        .param("start_date", "2026-09-01").param("end_date", "2026-09-30")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("11.1: 영업 계정 매출 목록 200, 기간 역전은 422 INVALID_DATE_RANGE")
+    void salesListAccessAndDateRange() throws Exception {
+        mockMvc.perform(as(Role.SALES, get("/api/v1/sales")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.page_size").value(20));
+        mockMvc.perform(as(Role.ADMIN, get("/api/v1/sales")
+                        .param("start_date", "2026-10-31").param("end_date", "2026-10-01")))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error.code").value("INVALID_DATE_RANGE"));
+    }
+
+    @Test
+    @DisplayName("11.2: 없는 매출이면 404 SALE_NOT_FOUND")
+    void unknownSale() throws Exception {
+        mockMvc.perform(as(Role.SALES, get("/api/v1/sales/" + UNKNOWN_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SALE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("11.3: start_date·end_date 누락 400 VALIDATION_ERROR, group_by 값 오류 422, 기간 역전 422")
+    void marginSummaryValidation() throws Exception {
+        mockMvc.perform(as(Role.ADMIN, get("/api/v1/margins/summary").param("end_date", "2026-09-30")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
+        mockMvc.perform(as(Role.ADMIN, get("/api/v1/margins/summary")
+                        .param("start_date", "2026-09-01").param("end_date", "2026-09-30").param("group_by", "FOO")))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error.code").value("UNPROCESSABLE_ENTITY"));
+        mockMvc.perform(as(Role.ADMIN, get("/api/v1/margins/summary")
+                        .param("start_date", "2026-09-30").param("end_date", "2026-09-01")))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error.code").value("INVALID_DATE_RANGE"));
+    }
+
+    @Test
+    @DisplayName("11.3: group_by 없으면 summary만(groups 필드 없음), 금액 필드는 snake_case")
+    void marginSummaryShape() throws Exception {
+        mockMvc.perform(as(Role.SALES, get("/api/v1/margins/summary")
+                        .param("start_date", "2000-01-01").param("end_date", "2000-01-31")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.sales_amount").value(0))
+                .andExpect(jsonPath("$.data.summary.margin_rate").value(0))
+                .andExpect(jsonPath("$.data.groups").doesNotExist());
+        mockMvc.perform(as(Role.SALES, get("/api/v1/margins/summary")
+                        .param("start_date", "2000-01-01").param("end_date", "2000-01-31").param("group_by", "ITEM")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groups").isArray());
+    }
+
+    @Test
+    @DisplayName("12장: 대시보드 3개 API는 관리자·영업·창고 모두 200, 토큰 없으면 401")
+    void dashboardForAllRoles() throws Exception {
+        for (Role role : Role.values()) {
+            mockMvc.perform(as(role, get("/api/v1/dashboard/summary"))).andExpect(status().isOk());
+            mockMvc.perform(as(role, get("/api/v1/dashboard/low-stock-items"))).andExpect(status().isOk());
+            mockMvc.perform(as(role, get("/api/v1/dashboard/recent-orders"))).andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/api/v1/dashboard/summary"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    @DisplayName("12.1: 기간 미지정이면 period가 이번 달 1일~오늘, snake_case 필드, 기간 역전은 422")
+    void dashboardSummaryShape() throws Exception {
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        mockMvc.perform(as(Role.WAREHOUSE, get("/api/v1/dashboard/summary")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.period.start_date").value(today.withDayOfMonth(1).toString()))
+                .andExpect(jsonPath("$.data.period.end_date").value(today.toString()))
+                .andExpect(jsonPath("$.data.total_sales").exists())
+                .andExpect(jsonPath("$.data.expiring_soon_count").exists());
+        mockMvc.perform(as(Role.ADMIN, get("/api/v1/dashboard/summary")
+                        .param("start_date", "2026-09-30").param("end_date", "2026-09-01")))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error.code").value("INVALID_DATE_RANGE"));
+    }
+
+    @Test
+    @DisplayName("12.2·12.3: 재고 부족 기본 page_size 10, 최근 주문 limit 51은 422 UNPROCESSABLE_ENTITY")
+    void dashboardPagingAndLimit() throws Exception {
+        mockMvc.perform(as(Role.SALES, get("/api/v1/dashboard/low-stock-items")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pagination.page_size").value(10));
+        mockMvc.perform(as(Role.SALES, get("/api/v1/dashboard/recent-orders").param("limit", "51")))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.error.code").value("UNPROCESSABLE_ENTITY"));
+    }
+
     private MockHttpServletRequestBuilder as(Role role, MockHttpServletRequestBuilder request) {
         return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.createAccessToken(1L, role));
     }
