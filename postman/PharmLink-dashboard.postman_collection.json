@@ -1,0 +1,1642 @@
+{
+    "info": {
+        "name": "PharmLink - 대시보드 (12장)",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        "description": "12.1 요약 · 12.2 재고 부족 품목 · 12.3 최근 주문/납품 현황 테스트.\n\n준비: 컬렉션 변수 item_id_1에 활성 상품 ID, admin_username / admin_password에 관리자 계정 값을 Current value로 넣고 실행한다. 관리자·영업·창고 세 역할 모두 조회 가능한지 함께 확인한다.\n흐름: 기준값 저장 → 매입·주문 2건(승인 1, 대기 1) → 요약 건수 증가·재고 부족·최근 주문 확인 → 오류 확인 → 정리(주문 취소, 납품 완료, 거래처·계정 비활성화)."
+    },
+    "item": [
+        {
+            "name": "1. 준비",
+            "item": [
+                {
+                    "name": "관리자 로그인 → 200 (관리자 토큰 저장)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/auth/login",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"username\": \"{{admin_username}}\",\n  \"password\": \"{{admin_password}}\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "description": "실행할 때마다 새 거래처명·사업자등록번호를 만들어서 다시 실행해도 409가 나지 않습니다."
+                    },
+                    "event": [
+                        {
+                            "listen": "prerequest",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const d = n => Array.from({length: n}, () => Math.floor(Math.random() * 10)).join(\"\");",
+                                    "pm.collectionVariables.set(\"run_id\", String(Date.now()));",
+                                    "pm.collectionVariables.set(\"supplier_bn\", \"9\" + d(2) + \"-\" + d(2) + \"-\" + d(5));",
+                                    "pm.collectionVariables.set(\"customer_bn\", \"8\" + d(2) + \"-\" + d(2) + \"-\" + d(5));"
+                                ]
+                            }
+                        },
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set(\"access_token\", pm.response.json().data.access_token);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "공급처 생성 → 201 (supplier_id 저장)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/business-partners",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "business-partners"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"partner_type\": \"SUPPLIER\",\n  \"name\": \"대한제약 {{run_id}}\",\n  \"business_number\": \"{{supplier_bn}}\",\n  \"phone\": \"02-9876-5432\",\n  \"address\": \"경기도 성남시\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set(\"supplier_id\", pm.response.json().data.partner_id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "고객사 생성 → 201 (customer_id 저장)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/business-partners",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "business-partners"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"partner_type\": \"CUSTOMER\",\n  \"name\": \"행복약국 {{run_id}}\",\n  \"business_number\": \"{{customer_bn}}\",\n  \"phone\": \"02-1234-5678\",\n  \"address\": \"서울시 강남구\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set(\"customer_id\", pm.response.json().data.partner_id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "WAREHOUSE 테스트 계정 생성 → 201",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/users",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "users"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"username\": \"qa_wh_{{run_id}}\",\n  \"password\": \"Passw0rd!\",\n  \"name\": \"창고담당\",\n  \"role\": \"WAREHOUSE\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set(\"warehouse_user_id\", pm.response.json().data.user_id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "WAREHOUSE 로그인 → 200 (창고 토큰 저장)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/auth/login",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"username\": \"qa_wh_{{run_id}}\",\n  \"password\": \"Passw0rd!\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set(\"warehouse_token\", pm.response.json().data.access_token);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "SALES 테스트 계정 생성 → 201",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/users",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "users"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"Passw0rd!\",\n  \"name\": \"영업담당\",\n  \"role\": \"SALES\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set(\"sales_user_id\", pm.response.json().data.user_id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "SALES 로그인 → 200 (영업 토큰 저장)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/auth/login",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "auth",
+                                "login"
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"username\": \"qa_sales_{{run_id}}\",\n  \"password\": \"Passw0rd!\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set(\"sales_token\", pm.response.json().data.access_token);"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "2. 기준값·주문 준비",
+            "item": [
+                {
+                    "name": "기준값: 요약 (오늘) → 200 (주문·납품 건수 저장)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/summary?start_date={{today_kst}}&end_date={{today_kst}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "summary"
+                            ],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "{{today_kst}}"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "{{today_kst}}"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "prerequest",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "// 오늘 날짜(KST, yyyy-MM-dd)",
+                                    "const kst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);",
+                                    "pm.collectionVariables.set(\"today_kst\", kst);",
+                                    "pm.collectionVariables.set(\"month_start_kst\", kst.slice(0, 8) + \"01\");"
+                                ]
+                            }
+                        },
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "const d = pm.response.json().data;",
+                                    "pm.collectionVariables.set(\"pending_before\", d.pending_order_count);",
+                                    "pm.collectionVariables.set(\"waiting_before\", d.waiting_delivery_count);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "재고 준비: 매입 등록 (item_id_1 5개) → 201",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/purchases",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "purchases"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"partner_id\": {{supplier_id}},\n  \"purchase_date\": \"2026-10-18\",\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 5, \"lot_number\": \"DB{{run_id}}\", \"expiry_date\": \"2099-12-31\" }\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "승인할 주문 등록 → 201",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/orders",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "orders"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"partner_id\": {{customer_id}},\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 1 }\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set(\"order_a\", pm.response.json().data.order_id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "주문 승인 → 200 (납품 WAITING)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/orders/{{order_a}}/approve",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "orders",
+                                "{{order_a}}",
+                                "approve"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "pm.collectionVariables.set(\"delivery_a\", pm.response.json().data.delivery_id);"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "승인 대기로 둘 주문 등록 → 201",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/orders",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "orders"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"partner_id\": {{customer_id}},\n  \"items\": [\n    { \"item_id\": {{item_id_1}}, \"quantity\": 1 }\n  ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                                    "pm.collectionVariables.set(\"order_b\", pm.response.json().data.order_id);"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "3. 정상 케이스",
+            "item": [
+                {
+                    "name": "12.1 요약 (기간 미지정) → 200 (이번 달 1일 ~ 오늘, 필드 전부)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/summary",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "summary"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{warehouse_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "const d = pm.response.json().data;",
+                                    "pm.test(\"period = 이번 달 1일 ~ 오늘(KST)\", () => { pm.expect(d.period.start_date).to.eql(pm.collectionVariables.get(\"month_start_kst\")); pm.expect(d.period.end_date).to.eql(pm.collectionVariables.get(\"today_kst\")); });",
+                                    "pm.test(\"snake_case 필드 전부\", () => [\"total_sales\", \"total_purchases\", \"total_margin\", \"margin_rate\", \"pending_order_count\", \"waiting_delivery_count\", \"shipped_delivery_count\", \"low_stock_count\", \"expiring_soon_count\", \"expired_count\"].forEach(k => pm.expect(d).to.have.property(k)));",
+                                    "pm.test(\"마진율 = 마진 ÷ 매출 × 100 (매출 0이면 0)\", () => pm.expect(Number(d.margin_rate)).to.be.closeTo(d.total_sales === 0 ? 0 : d.total_margin / d.total_sales * 100, 0.005));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.1 요약 (오늘) → 200 (승인 대기·출고 대기 각 +1)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/summary?start_date={{today_kst}}&end_date={{today_kst}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "summary"
+                            ],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "{{today_kst}}"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "{{today_kst}}"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{sales_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "const d = pm.response.json().data;",
+                                    "pm.test(\"승인 대기 +1\", () => pm.expect(d.pending_order_count - Number(pm.collectionVariables.get(\"pending_before\"))).to.eql(1));",
+                                    "pm.test(\"출고 대기 +1\", () => pm.expect(d.waiting_delivery_count - Number(pm.collectionVariables.get(\"waiting_before\"))).to.eql(1));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.2 재고 부족 품목 (기본) → 200 (page_size 10, 부족 수량 큰 순, 상태 규칙)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/low-stock-items",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "low-stock-items"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{warehouse_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "const body = pm.response.json(); const rows = body.data;",
+                                    "pm.test(\"기본 page_size 10\", () => pm.expect(body.pagination.page_size).to.eql(10));",
+                                    "pm.test(\"부족 수량 = 안전재고 - 수량, 수량 ≤ 안전재고\", () => rows.forEach(r => { pm.expect(r.shortage_quantity).to.eql(r.safety_stock - r.quantity); pm.expect(r.quantity).to.be.at.most(r.safety_stock); }));",
+                                    "pm.test(\"수량 0 → OUT_OF_STOCK, 그 외 LOW_STOCK\", () => rows.forEach(r => pm.expect(r.stock_status).to.eql(r.quantity === 0 ? \"OUT_OF_STOCK\" : \"LOW_STOCK\")));",
+                                    "pm.test(\"부족 수량 내림차순\", () => rows.forEach((r, i) => { if (i > 0) pm.expect(rows[i - 1].shortage_quantity).to.be.at.least(r.shortage_quantity); }));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.2 재고 부족 품목 (창고 1, page_size 5) → 200",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/low-stock-items?warehouse_id=1&page_size=5",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "low-stock-items"
+                            ],
+                            "query": [
+                                {
+                                    "key": "warehouse_id",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "page_size",
+                                    "value": "5"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "const body = pm.response.json();",
+                                    "pm.test(\"page_size 5, 모두 창고 1\", () => { pm.expect(body.pagination.page_size).to.eql(5); body.data.forEach(r => pm.expect(r.warehouse_id).to.eql(1)); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.3 최근 주문 (limit 2) → 200 (방금 주문 2건, 납품 상태)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/recent-orders?limit=2",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "recent-orders"
+                            ],
+                            "query": [
+                                {
+                                    "key": "limit",
+                                    "value": "2"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{sales_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "const rows = pm.response.json().data;",
+                                    "pm.test(\"최신순: 승인 대기 주문 → 승인 주문\", () => pm.expect(rows.map(r => r.order_id)).to.eql([Number(pm.collectionVariables.get(\"order_b\")), Number(pm.collectionVariables.get(\"order_a\"))]));",
+                                    "pm.test(\"승인 대기 주문은 delivery_id·delivery_status null\", () => { pm.expect(rows[0].order_status).to.eql(\"PENDING\"); pm.expect(rows[0].delivery_id).to.eql(null); pm.expect(rows[0].delivery_status).to.eql(null); });",
+                                    "pm.test(\"승인 주문은 납품 WAITING 연결\", () => { pm.expect(rows[1].order_status).to.eql(\"APPROVED\"); pm.expect(rows[1].delivery_id).to.eql(Number(pm.collectionVariables.get(\"delivery_a\"))); pm.expect(rows[1].delivery_status).to.eql(\"WAITING\"); });"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.3 최근 주문 (기본) → 200 (최대 10건)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/recent-orders",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "recent-orders"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{warehouse_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                                    "pm.test(\"10건 이하\", () => pm.expect(pm.response.json().data.length).to.be.at.most(10));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "4. 실패 케이스",
+            "item": [
+                {
+                    "name": "12.1 기간 역전 → 422 INVALID_DATE_RANGE",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/summary?start_date=2026-10-31&end_date=2026-10-01",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "summary"
+                            ],
+                            "query": [
+                                {
+                                    "key": "start_date",
+                                    "value": "2026-10-31"
+                                },
+                                {
+                                    "key": "end_date",
+                                    "value": "2026-10-01"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                                    "pm.test(\"error.code = INVALID_DATE_RANGE\", () => pm.expect(pm.response.json().error.code).to.eql(\"INVALID_DATE_RANGE\"));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.1 토큰 없음 → 401 UNAUTHORIZED",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/summary",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "summary"
+                            ]
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                                    "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(pm.response.json().error.code).to.eql(\"UNAUTHORIZED\"));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.3 limit 51 → 422 UNPROCESSABLE_ENTITY",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/recent-orders?limit=51",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "recent-orders"
+                            ],
+                            "query": [
+                                {
+                                    "key": "limit",
+                                    "value": "51"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                                    "pm.test(\"error.code = UNPROCESSABLE_ENTITY\", () => pm.expect(pm.response.json().error.code).to.eql(\"UNPROCESSABLE_ENTITY\"));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.3 limit 0 → 422 UNPROCESSABLE_ENTITY",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/recent-orders?limit=0",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "recent-orders"
+                            ],
+                            "query": [
+                                {
+                                    "key": "limit",
+                                    "value": "0"
+                                }
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 422\", () => pm.response.to.have.status(422));",
+                                    "pm.test(\"error.code = UNPROCESSABLE_ENTITY\", () => pm.expect(pm.response.json().error.code).to.eql(\"UNPROCESSABLE_ENTITY\"));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "12.2 토큰 없음 → 401 UNAUTHORIZED",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/dashboard/low-stock-items",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "dashboard",
+                                "low-stock-items"
+                            ]
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+                                    "pm.test(\"error.code = UNAUTHORIZED\", () => pm.expect(pm.response.json().error.code).to.eql(\"UNAUTHORIZED\"));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "5. 정리",
+            "item": [
+                {
+                    "name": "승인 대기 주문 취소 → 200",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/orders/{{order_b}}/cancel",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "orders",
+                                "{{order_b}}",
+                                "cancel"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "남은 납품 출고 → 200",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/deliveries/{{delivery_a}}/ship",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "deliveries",
+                                "{{delivery_a}}",
+                                "ship"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{warehouse_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "남은 납품 완료 → 200",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/deliveries/{{delivery_a}}/complete",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "deliveries",
+                                "{{delivery_a}}",
+                                "complete"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{warehouse_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "테스트 고객사 비활성화 → 204",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/business-partners/{{customer_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "business-partners",
+                                "{{customer_id}}"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "테스트 공급처 비활성화 → 204",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/business-partners/{{supplier_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "business-partners",
+                                "{{supplier_id}}"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "WAREHOUSE 테스트 계정 비활성화 → 204",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/users/{{warehouse_user_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "users",
+                                "{{warehouse_user_id}}"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "SALES 테스트 계정 비활성화 → 204",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/api/v1/users/{{sales_user_id}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "users",
+                                "{{sales_user_id}}"
+                            ]
+                        },
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{access_token}}",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "pm.test(\"HTTP 204\", () => pm.response.to.have.status(204));"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8080"
+        },
+        {
+            "key": "admin_username",
+            "value": ""
+        },
+        {
+            "key": "admin_password",
+            "value": ""
+        },
+        {
+            "key": "item_id_1",
+            "value": ""
+        },
+        {
+            "key": "access_token",
+            "value": ""
+        },
+        {
+            "key": "warehouse_token",
+            "value": ""
+        },
+        {
+            "key": "sales_token",
+            "value": ""
+        },
+        {
+            "key": "run_id",
+            "value": ""
+        },
+        {
+            "key": "supplier_bn",
+            "value": ""
+        },
+        {
+            "key": "customer_bn",
+            "value": ""
+        },
+        {
+            "key": "supplier_id",
+            "value": ""
+        },
+        {
+            "key": "customer_id",
+            "value": ""
+        },
+        {
+            "key": "warehouse_user_id",
+            "value": ""
+        },
+        {
+            "key": "sales_user_id",
+            "value": ""
+        },
+        {
+            "key": "today_kst",
+            "value": ""
+        },
+        {
+            "key": "month_start_kst",
+            "value": ""
+        },
+        {
+            "key": "pending_before",
+            "value": ""
+        },
+        {
+            "key": "waiting_before",
+            "value": ""
+        },
+        {
+            "key": "order_a",
+            "value": ""
+        },
+        {
+            "key": "delivery_a",
+            "value": ""
+        },
+        {
+            "key": "order_b",
+            "value": ""
+        }
+    ]
+}
