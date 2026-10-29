@@ -30,9 +30,15 @@ public class ItemController {
     @GetMapping
     public ApiResponse<List<ItemResponse>> getItems(
             @RequestParam(required = false) Integer page,
-            @RequestParam(name = "page_size", required = false) Integer pageSize
+            @RequestParam(name = "page_size", required = false) Integer pageSize,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(name = "category_id", required = false) Long categoryId,
+            @RequestParam(name = "supplier_id", required = false) Long supplierId,
+            @RequestParam(name = "include_inactive", required = false) Boolean includeInactive
     ) {
-        Page<ItemResponse> items = itemService.getItems(page, pageSize);
+        Page<ItemResponse> items = itemService.getItems(
+                page, pageSize, keyword, categoryId, supplierId, includeInactive
+        );
         return ApiResponse.success(items);
     }
 

@@ -26,15 +26,67 @@ public class ItemService {
     private final CategoryRepository categoryRepository;
     private final PartnerService partnerService;
 
-    // 상품 목록 조회
+    // 기존 내부 호출 및 테스트 호환성 유지
     public Page<ItemResponse> getItems(Integer page, Integer pageSize) {
+        return getItems(page, pageSize, null, null, null, null);
+    }
+
+    // 상품 검색 및 필터 목록 조회
+    public Page<ItemResponse> getItems(
+            Integer page,
+            Integer pageSize,
+            String keyword,
+            Long categoryId,
+            Long supplierId,
+            Boolean includeInactive
+    ) {
         Pageable pageable = PageRequestFactory.of(
                 page,
                 pageSize,
                 Sort.by(Sort.Direction.DESC, "itemId")
         );
 
-        return itemRepository.findAll(pageable)
+        String normalizedKeyword =
+                keyword == null ? null : keyword.trim().toLowerCase();
+
+        org.springframework.data.jpa.domain.Specification<Item> specification =
+                (root, query, cb) -> cb.conjunction();
+
+        if (normalizedKeyword != null && !normalizedKeyword.isEmpty()) {
+            String escaped = normalizedKeyword
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
+            String pattern = "%" + escaped + "%";
+
+            specification = specification.and((root, query, cb) ->
+                    cb.or(
+                            cb.like(cb.lower(root.get("itemCode")), pattern, '\\'),
+                            cb.like(cb.lower(root.get("itemName")), pattern, '\\')
+                    )
+            );
+        }
+
+        if (categoryId != null) {
+            specification = specification.and((root, query, cb) ->
+                    cb.equal(root.get("categoryId"), categoryId)
+            );
+        }
+
+        if (supplierId != null) {
+            specification = specification.and((root, query, cb) ->
+                    cb.equal(root.get("supplierId"), supplierId)
+            );
+        }
+
+        // 기존 API 호환: 미지정 시 단종 상품도 포함
+        if (Boolean.FALSE.equals(includeInactive)) {
+            specification = specification.and((root, query, cb) ->
+                    cb.isTrue(root.get("isActive"))
+            );
+        }
+
+        return itemRepository.findAll(specification, pageable)
                 .map(ItemResponse::from);
     }
 
