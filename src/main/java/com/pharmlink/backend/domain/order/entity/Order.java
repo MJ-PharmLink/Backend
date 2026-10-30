@@ -53,6 +53,10 @@ public class Order extends BaseEntity {
     @JoinColumn(name = "partner_id", nullable = false, updatable = false)
     private BusinessPartner partner;
 
+    // 거래처명 (partner_id, partner_name) 복합 FK. 거래처 이름 수정 시 DB가 ON UPDATE CASCADE로 맞춘다
+    @Column(nullable = false, length = 100, updatable = false)
+    private String partnerName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private OrderStatus status;
@@ -85,6 +89,7 @@ public class Order extends BaseEntity {
         Order order = new Order();
         order.orderNumber = orderNumber;
         order.partner = partner;
+        order.partnerName = partner.getName();
         order.status = OrderStatus.PENDING;
         order.totalAmount = 0L;
         order.createdBy = createdBy;
