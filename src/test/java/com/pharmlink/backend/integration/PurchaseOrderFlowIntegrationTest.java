@@ -26,6 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 
@@ -318,8 +319,8 @@ class PurchaseOrderFlowIntegrationTest {
         deliveryService.ship(deliveryId);
         // 정상 흐름에서는 생길 수 없어서 SQL로 매출을 먼저 넣는다
         jdbc.update("""
-                insert into sales (order_id, delivery_id, partner_id, sales_amount, cost_amount, margin_amount,
-                                   margin_rate, sale_date) values (?, ?, ?, 0, 0, 0, 0, ?)""",
+                insert into sales (order_id, delivery_id, partner_id, partner_name, sales_amount, cost_amount,
+                                   margin_amount, margin_rate, sale_date) values (?, ?, ?, 'IT-CUSTOMER', 0, 0, 0, 0, ?)""",
                 orderId, deliveryId, customerId, TODAY);
 
         assertThatThrownBy(() -> deliveryService.complete(deliveryId))
@@ -341,8 +342,8 @@ class PurchaseOrderFlowIntegrationTest {
         // 매출 INSERT에서 uk_sales_order 위반이 나도록, 같은 주문으로 다른 납품을 가리키는 매출을 SQL로 먼저 넣는다
         Long otherDeliveryId = orderService.approveOrder(order(itemA, 1), userId).deliveryId();
         jdbc.update("""
-                insert into sales (order_id, delivery_id, partner_id, sales_amount, cost_amount, margin_amount,
-                                   margin_rate, sale_date) values (?, ?, ?, 0, 0, 0, 0, ?)""",
+                insert into sales (order_id, delivery_id, partner_id, partner_name, sales_amount, cost_amount,
+                                   margin_amount, margin_rate, sale_date) values (?, ?, ?, 'IT-CUSTOMER', 0, 0, 0, 0, ?)""",
                 orderId, otherDeliveryId, customerId, TODAY);
 
         assertThatThrownBy(() -> deliveryService.complete(deliveryId))
@@ -548,6 +549,37 @@ class PurchaseOrderFlowIntegrationTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.UNPROCESSABLE_ENTITY);
     }
 
+    @Test
+    @DisplayName("거래처명 복합 FK: 매입·주문·매출에 거래처명이 복사되고, 거래처명 수정 시 상품·매입·주문·매출이 같이 바뀜")
+    void partnerNameFollowsCompositeForeignKey() {
+        Long itemA = insertItem();
+        purchase(TODAY, line(itemA, 10, "N1", TODAY.plusDays(60)));
+        Long orderId = order(itemA, 2);
+        Long saleId = deliver(orderId);
+
+        assertThat(jdbc.queryForObject("select partner_name from orders where order_id = ?", String.class, orderId))
+                .isEqualTo("IT-CUSTOMER");
+        assertThat(jdbc.queryForObject("select partner_name from sales where sale_id = ?", String.class, saleId))
+                .isEqualTo("IT-CUSTOMER");
+        assertThat(jdbc.queryForObject("select partner_name from purchases where partner_id = ?", String.class,
+                supplierId)).isEqualTo("IT-SUPPLIER");
+
+        jdbc.update("update business_partners set name = 'IT-CUSTOMER-R' where partner_id = ?", customerId);
+        jdbc.update("update business_partners set name = 'IT-SUPPLIER-R' where partner_id = ?", supplierId);
+
+        assertThat(jdbc.queryForObject("select partner_name from orders where order_id = ?", String.class, orderId))
+                .isEqualTo("IT-CUSTOMER-R");
+        assertThat(jdbc.queryForObject("select partner_name from sales where sale_id = ?", String.class, saleId))
+                .isEqualTo("IT-CUSTOMER-R");
+        assertThat(jdbc.queryForObject("select partner_name from purchases where partner_id = ?", String.class,
+                supplierId)).isEqualTo("IT-SUPPLIER-R");
+        assertThat(jdbc.queryForObject("select supplier_name from items where item_id = ?", String.class, itemA))
+                .isEqualTo("IT-SUPPLIER-R");
+        // 거래처와 다른 이름은 FK 위반
+        assertThatThrownBy(() -> jdbc.update("update orders set partner_name = 'WRONG' where order_id = ?", orderId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     private Long insertItem(long unitPrice, long unitCost, int safetyStock) {
         Long itemId = insertItem(unitPrice, unitCost);
         jdbc.update("update items set safety_stock = ? where item_id = ?", safetyStock, itemId);
@@ -631,8 +663,8 @@ class PurchaseOrderFlowIntegrationTest {
         String code = "IT-TEST-" + System.nanoTime() % 1_000_000_000_000L;
         Long itemId = insert("""
                 insert into items (item_code, item_name, category_id, unit, unit_cost, unit_price, safety_stock,
-                                   supplier_id, is_active)
-                values (?, '통합 테스트 상품', 5, '정', 1000, 1500, 0, ?, true)""", code, supplierId);
+                                   supplier_id, supplier_name, is_active)
+                values (?, '통합 테스트 상품', 5, '정', 1000, 1500, 0, ?, 'IT-SUPPLIER', true)""", code, supplierId);
         itemIds.add(itemId);
         return itemId;
     }

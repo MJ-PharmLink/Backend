@@ -52,6 +52,10 @@ public class Purchase {
     @JoinColumn(name = "partner_id", nullable = false, updatable = false)
     private BusinessPartner partner;
 
+    // 거래처명 (partner_id, partner_name) 복합 FK. 거래처 이름 수정 시 DB가 ON UPDATE CASCADE로 맞춘다
+    @Column(nullable = false, length = 100, updatable = false)
+    private String partnerName;
+
     // 입고 창고 (요청에서 생략하면 기본 창고)
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "warehouse_id", nullable = false, updatable = false)
@@ -79,6 +83,7 @@ public class Purchase {
     public static Purchase create(BusinessPartner partner, Warehouse warehouse, LocalDate purchaseDate, Long createdBy) {
         Purchase purchase = new Purchase();
         purchase.partner = partner;
+        purchase.partnerName = partner.getName();
         purchase.warehouse = warehouse;
         purchase.purchaseDate = purchaseDate;
         purchase.totalAmount = 0L;
