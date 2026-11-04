@@ -4,6 +4,7 @@
 -- MySQL 8.x / utf8mb4 / utf8mb4_unicode_ci
 -- Enum 값은 DB ENUM 대신 VARCHAR + 애플리케이션 검증
 -- FK는 refresh_tokens만 ON DELETE CASCADE, 나머지는 RESTRICT (소프트 삭제 정책)
+-- 단, 거래처 (id, name) 복합 FK는 거래처명 수정이 따라가도록 ON UPDATE CASCADE (삭제는 RESTRICT 그대로)
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -76,6 +77,8 @@ CREATE TABLE business_partners (
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (partner_id),
     CONSTRAINT uk_bp_business_number UNIQUE (business_number),
+    -- 복합 FK (partner_id, name) 참조 대상. partner_id가 PK라 name 중복은 그대로 허용
+    CONSTRAINT uk_bp_id_name UNIQUE (partner_id, name),
     INDEX idx_bp_type_active (partner_type, is_active),
     INDEX idx_bp_name (name)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
@@ -109,27 +112,30 @@ CREATE TABLE warehouses (
 -- 3.7 items — 상품(의약품) 마스터
 -- ---------------------------------------------------------------------
 CREATE TABLE items (
-    item_id      BIGINT       NOT NULL AUTO_INCREMENT,
-    item_code    VARCHAR(20)  NOT NULL,
-    item_name    VARCHAR(100) NOT NULL,
-    category_id  BIGINT       NOT NULL,
-    spec         VARCHAR(100) NULL     DEFAULT NULL,
-    unit         VARCHAR(20)  NOT NULL,
-    unit_cost    BIGINT       NOT NULL,
-    unit_price   BIGINT       NOT NULL,
-    safety_stock INT          NOT NULL DEFAULT 0,
-    supplier_id  BIGINT       NOT NULL,
-    is_active    BOOLEAN      NOT NULL DEFAULT TRUE,
-    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    item_id       BIGINT       NOT NULL AUTO_INCREMENT,
+    item_code     VARCHAR(20)  NOT NULL,
+    item_name     VARCHAR(100) NOT NULL,
+    category_id   BIGINT       NOT NULL,
+    spec          VARCHAR(100) NULL     DEFAULT NULL,
+    unit          VARCHAR(20)  NOT NULL,
+    unit_cost     BIGINT       NOT NULL,
+    unit_price    BIGINT       NOT NULL,
+    safety_stock  INT          NOT NULL DEFAULT 0,
+    supplier_id   BIGINT       NOT NULL,
+    supplier_name VARCHAR(100) NOT NULL,
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (item_id),
     CONSTRAINT uk_items_item_code UNIQUE (item_code),
     CONSTRAINT chk_items_amounts CHECK (unit_cost >= 0 AND unit_price >= 0 AND safety_stock >= 0),
     INDEX idx_items_category (category_id),
     INDEX idx_items_supplier (supplier_id),
     INDEX idx_items_name (item_name),
+    INDEX idx_items_supplier_name (supplier_name),
     CONSTRAINT fk_items_category FOREIGN KEY (category_id) REFERENCES categories (category_id),
-    CONSTRAINT fk_items_supplier FOREIGN KEY (supplier_id) REFERENCES business_partners (partner_id)
+    CONSTRAINT fk_items_supplier FOREIGN KEY (supplier_id, supplier_name)
+        REFERENCES business_partners (partner_id, name) ON UPDATE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -209,6 +215,7 @@ CREATE TABLE orders (
     order_id      BIGINT       NOT NULL AUTO_INCREMENT,
     order_number  VARCHAR(20)  NOT NULL,
     partner_id    BIGINT       NOT NULL,
+    partner_name  VARCHAR(100) NOT NULL,
     status        VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
     total_amount  BIGINT       NOT NULL DEFAULT 0,
     cancel_reason VARCHAR(200) NULL     DEFAULT NULL,
@@ -222,7 +229,9 @@ CREATE TABLE orders (
     CONSTRAINT uk_orders_order_number UNIQUE (order_number),
     INDEX idx_orders_status_created (status, created_at DESC),
     INDEX idx_orders_partner_created (partner_id, created_at DESC),
-    CONSTRAINT fk_orders_partner FOREIGN KEY (partner_id) REFERENCES business_partners (partner_id),
+    INDEX idx_orders_partner_name (partner_name),
+    CONSTRAINT fk_orders_partner FOREIGN KEY (partner_id, partner_name)
+        REFERENCES business_partners (partner_id, name) ON UPDATE CASCADE,
     CONSTRAINT fk_orders_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (user_id),
     CONSTRAINT fk_orders_created_by FOREIGN KEY (created_by) REFERENCES users (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
@@ -267,18 +276,21 @@ CREATE TABLE deliveries (
 -- 3.14 purchases — 매입 헤더 (수정·삭제 API 없음)
 -- ---------------------------------------------------------------------
 CREATE TABLE purchases (
-    purchase_id   BIGINT    NOT NULL AUTO_INCREMENT,
-    partner_id    BIGINT    NOT NULL,
-    warehouse_id  BIGINT    NOT NULL,
-    purchase_date DATE      NOT NULL,
-    total_amount  BIGINT    NOT NULL DEFAULT 0,
-    created_by    BIGINT    NOT NULL,
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    purchase_id   BIGINT       NOT NULL AUTO_INCREMENT,
+    partner_id    BIGINT       NOT NULL,
+    partner_name  VARCHAR(100) NOT NULL,
+    warehouse_id  BIGINT       NOT NULL,
+    purchase_date DATE         NOT NULL,
+    total_amount  BIGINT       NOT NULL DEFAULT 0,
+    created_by    BIGINT       NOT NULL,
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (purchase_id),
     INDEX idx_pur_date (purchase_date),
     INDEX idx_pur_partner_date (partner_id, purchase_date DESC),
     INDEX idx_pur_wh_date (warehouse_id, purchase_date DESC),
-    CONSTRAINT fk_pur_partner FOREIGN KEY (partner_id) REFERENCES business_partners (partner_id),
+    INDEX idx_pur_partner_name (partner_name),
+    CONSTRAINT fk_pur_partner FOREIGN KEY (partner_id, partner_name)
+        REFERENCES business_partners (partner_id, name) ON UPDATE CASCADE,
     CONSTRAINT fk_pur_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
     CONSTRAINT fk_pur_created_by FOREIGN KEY (created_by) REFERENCES users (user_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
@@ -312,6 +324,7 @@ CREATE TABLE sales (
     order_id      BIGINT        NOT NULL,
     delivery_id   BIGINT        NOT NULL,
     partner_id    BIGINT        NOT NULL,
+    partner_name  VARCHAR(100)  NOT NULL,
     sales_amount  BIGINT        NOT NULL,
     cost_amount   BIGINT        NOT NULL,
     margin_amount BIGINT        NOT NULL,
@@ -323,7 +336,9 @@ CREATE TABLE sales (
     CONSTRAINT uk_sales_delivery UNIQUE (delivery_id),
     INDEX idx_sales_date (sale_date),
     INDEX idx_sales_partner_date (partner_id, sale_date),
+    INDEX idx_sales_partner_name (partner_name),
     CONSTRAINT fk_sales_order FOREIGN KEY (order_id) REFERENCES orders (order_id),
     CONSTRAINT fk_sales_delivery FOREIGN KEY (delivery_id) REFERENCES deliveries (delivery_id),
-    CONSTRAINT fk_sales_partner FOREIGN KEY (partner_id) REFERENCES business_partners (partner_id)
+    CONSTRAINT fk_sales_partner FOREIGN KEY (partner_id, partner_name)
+        REFERENCES business_partners (partner_id, name) ON UPDATE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;

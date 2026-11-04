@@ -60,6 +60,10 @@ public class Sale {
     @JoinColumn(name = "partner_id", nullable = false, updatable = false)
     private BusinessPartner partner;
 
+    // 거래처명 (orders.partner_name 복사). (partner_id, partner_name) 복합 FK
+    @Column(nullable = false, length = 100, updatable = false)
+    private String partnerName;
+
     // Σ(quantity × unit_price), 주문 라인 스냅샷 기준
     @Column(nullable = false, updatable = false)
     private long salesAmount;
@@ -97,6 +101,7 @@ public class Sale {
         sale.order = order;
         sale.delivery = delivery;
         sale.partner = order.getPartner();
+        sale.partnerName = order.getPartnerName();
         sale.salesAmount = salesAmount;
         sale.costAmount = costAmount;
         sale.marginAmount = salesAmount - costAmount;
