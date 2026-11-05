@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface InventoryRepository extends JpaRepository<Inventory, Long> {
@@ -22,6 +23,9 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
             @Param("warehouseId") Long warehouseId,
             @Param("itemId") Long itemId
     );
+
+    // 창고 상세 요약용 전체 재고 조회 (읽기 전용)
+    List<Inventory> findByWarehouseWarehouseId(Long warehouseId);
 
     // DAY 3: 특정 창고의 특정 상품 재고 조회
     Optional<Inventory> findByWarehouseWarehouseIdAndItemItemId(

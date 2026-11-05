@@ -16,6 +16,7 @@ public record ItemResponse(
         Long unitPrice,
         Integer safetyStock,
         Long supplierId,
+        String supplierName,
         boolean isActive,
         Instant createdAt,
         Instant updatedAt
@@ -33,6 +34,7 @@ public record ItemResponse(
                 item.getUnitPrice(),
                 item.getSafetyStock(),
                 item.getSupplierId(),
+                item.getSupplierName(),
                 item.isActive(),
                 item.getCreatedAt(),
                 item.getUpdatedAt()

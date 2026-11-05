@@ -8,6 +8,7 @@ import com.pharmlink.backend.domain.item.entity.Item;
 import com.pharmlink.backend.domain.item.repository.CategoryRepository;
 import com.pharmlink.backend.domain.item.repository.ItemRepository;
 import com.pharmlink.backend.domain.partner.service.PartnerService;
+import com.pharmlink.backend.domain.partner.entity.BusinessPartner;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
 
@@ -61,6 +62,13 @@ class ItemServiceTest {
         given(categoryRepository.existsById(CATEGORY_ID))
                 .willReturn(true);
 
+        BusinessPartner supplier =
+                org.mockito.Mockito.mock(BusinessPartner.class);
+
+        given(partnerService.getActiveSupplier(SUPPLIER_ID))
+                .willReturn(supplier);
+        given(supplier.getName()).willReturn("대한제약");
+
         given(itemRepository.saveAndFlush(any(Item.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
 
@@ -70,6 +78,7 @@ class ItemServiceTest {
         assertThat(response.itemName()).isEqualTo("테스트 해열진통제 500mg");
         assertThat(response.categoryId()).isEqualTo(CATEGORY_ID);
         assertThat(response.supplierId()).isEqualTo(SUPPLIER_ID);
+        assertThat(response.supplierName()).isEqualTo("대한제약");
         assertThat(response.isActive()).isTrue();
 
         verify(partnerService).getActiveSupplier(SUPPLIER_ID);
@@ -238,6 +247,7 @@ class ItemServiceTest {
                 SUPPLIER_ID
         );
 
+        item.changeSupplier(SUPPLIER_ID, "대한제약");
         ReflectionTestUtils.setField(item, "itemId", ITEM_ID);
 
         return item;

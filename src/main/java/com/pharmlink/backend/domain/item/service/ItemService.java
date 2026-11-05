@@ -79,8 +79,8 @@ public class ItemService {
             );
         }
 
-        // 기존 API 호환: 미지정 시 단종 상품도 포함
-        if (Boolean.FALSE.equals(includeInactive)) {
+        // 기본적으로 비활성 상품 제외, true 요청 시에만 포함
+        if (!Boolean.TRUE.equals(includeInactive)) {
             specification = specification.and((root, query, cb) ->
                     cb.isTrue(root.get("isActive"))
             );
@@ -116,7 +116,8 @@ public class ItemService {
             throw new BusinessException(ErrorCode.CATEGORY_NOT_FOUND);
         }
 
-        partnerService.getActiveSupplier(request.supplierId());
+        var supplier = partnerService.getActiveSupplier(
+                request.supplierId());
 
         Item item = Item.create(
                 itemCode,
@@ -128,6 +129,11 @@ public class ItemService {
                 request.unitPrice(),
                 request.safetyStock(),
                 request.supplierId()
+        );
+
+        item.changeSupplier(
+                request.supplierId(),
+                supplier.getName()
         );
 
         return ItemResponse.from(itemRepository.saveAndFlush(item));
@@ -153,7 +159,13 @@ public class ItemService {
 
         // 공급처 유효성 검사
         if (request.supplierId() != null) {
-            partnerService.getActiveSupplier(request.supplierId());
+            var supplier = partnerService.getActiveSupplier(
+                    request.supplierId());
+
+            item.changeSupplier(
+                    request.supplierId(),
+                    supplier.getName()
+            );
         }
 
         // 상품명 공백 검사

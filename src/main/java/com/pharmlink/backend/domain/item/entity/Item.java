@@ -65,6 +65,9 @@ public class Item extends BaseEntity {
     @Column(name = "supplier_id", nullable = false)
     private Long supplierId;
 
+    @Column(name = "supplier_name", nullable = false, length = 100)
+    private String supplierName;
+
     @Column(name = "is_active", nullable = false)
     private boolean isActive;
 
@@ -138,6 +141,12 @@ public class Item extends BaseEntity {
         if (supplierId != null) {
             this.supplierId = supplierId;
         }
+    }
+
+    // 공급처 ID와 이름을 함께 갱신
+    public void changeSupplier(Long supplierId, String supplierName) {
+        this.supplierId = java.util.Objects.requireNonNull(supplierId);
+        this.supplierName = java.util.Objects.requireNonNull(supplierName);
     }
 
     // 상품 비활성화 (Soft Delete)
