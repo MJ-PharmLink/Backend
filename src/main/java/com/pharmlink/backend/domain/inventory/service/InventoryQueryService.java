@@ -14,9 +14,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import jakarta.persistence.criteria.Predicate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
@@ -24,11 +28,27 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class InventoryQueryService {
 
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final int EXPIRING_SOON_DAYS = 90;
+
     private final InventoryRepository inventoryRepository;
     private final InventoryLotRepository inventoryLotRepository;
 
-    // 1. 전체 재고 목록 조회 (페이지네이션)
+    // 1. 전체 재고 목록 조회
     public Page<InventoryResponse> getInventories(
+            Integer page,
+            Integer pageSize
+    ) {
+        return getInventories(
+                null, null, null, page, pageSize
+        );
+    }
+
+    // 상품명·상품코드·창고·카테고리 조건 조회
+    public Page<InventoryResponse> getInventories(
+            String keyword,
+            Long warehouseId,
+            Long categoryId,
             Integer page,
             Integer pageSize
     ) {
@@ -38,8 +58,55 @@ public class InventoryQueryService {
                 Sort.by(Sort.Direction.DESC, "inventoryId")
         );
 
-        return inventoryRepository.findAll(pageable)
-                .map(InventoryResponse::from);
+        Specification<Inventory> specification =
+                (root, query, cb) -> {
+                    List<Predicate> predicates =
+                            new java.util.ArrayList<>();
+
+                    if (keyword != null && !keyword.isBlank()) {
+                        String pattern = "%"
+                                + keyword.trim()
+                                        .toLowerCase(java.util.Locale.ROOT)
+                                + "%";
+
+                        predicates.add(cb.or(
+                                cb.like(
+                                        cb.lower(root.get("item")
+                                                .get("itemName")),
+                                        pattern
+                                ),
+                                cb.like(
+                                        cb.lower(root.get("item")
+                                                .get("itemCode")),
+                                        pattern
+                                )
+                        ));
+                    }
+
+                    if (warehouseId != null) {
+                        predicates.add(cb.equal(
+                                root.get("warehouse")
+                                        .get("warehouseId"),
+                                warehouseId
+                        ));
+                    }
+
+                    if (categoryId != null) {
+                        predicates.add(cb.equal(
+                                root.get("item")
+                                        .get("categoryId"),
+                                categoryId
+                        ));
+                    }
+
+                    return cb.and(
+                            predicates.toArray(new Predicate[0])
+                    );
+                };
+
+        return inventoryRepository
+                .findAll(specification, pageable)
+                .map(this::toResponse);
     }
 
     // 2. 재고 상세 조회
@@ -50,7 +117,44 @@ public class InventoryQueryService {
                         new BusinessException(ErrorCode.INVENTORY_NOT_FOUND)
                 );
 
-        return InventoryResponse.from(inventory);
+        return toResponse(inventory);
+    }
+
+    private InventoryResponse toResponse(Inventory inventory) {
+        var item = inventory.getItem();
+        int quantity = inventory.getQuantity();
+        int safetyStock = item.getSafetyStock();
+
+        var lots = inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        inventory.getInventoryId()
+                );
+
+        var summary = InventoryStatusCalculator.summarize(
+                quantity,
+                lots,
+                LocalDate.now(KST),
+                EXPIRING_SOON_DAYS
+        );
+
+        return new InventoryResponse(
+                inventory.getInventoryId(),
+                inventory.getWarehouse().getWarehouseId(),
+                inventory.getWarehouse().getName(),
+                item.getItemId(),
+                item.getItemCode(),
+                item.getItemName(),
+                quantity,
+                safetyStock,
+                InventoryStatusCalculator.itemStatus(item.isActive()),
+                summary.availableQuantity(),
+                InventoryStatusCalculator.stockStatus(
+                        quantity, safetyStock
+                ),
+                summary.lotCount(),
+                summary.nearestExpiryDate(),
+                summary.expiryStatus()
+        );
     }
 
     // 3. 특정 재고의 LOT 목록 조회

@@ -22,6 +22,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -54,7 +56,20 @@ class InventoryQueryServiceTest {
 
         Inventory inventory = createInventory();
 
-        given(inventoryRepository.findAll(any(Pageable.class)))
+        InventoryLot lot = InventoryLot.create(
+                inventory,
+                "TEST-VALID-LOT",
+                LocalDate.now().plusDays(180),
+                java.time.Instant.now()
+        );
+        lot.increase(50);
+
+        given(inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                )).willReturn(List.of(lot));
+
+        given(inventoryRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .willReturn(new PageImpl<>(List.of(inventory)));
 
         Page<InventoryResponse> result =
@@ -63,6 +78,10 @@ class InventoryQueryServiceTest {
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).itemId()).isEqualTo(1L);
         assertThat(result.getContent().get(0).quantity()).isEqualTo(50);
+        assertThat(result.getContent().get(0).availableQuantity())
+                .isEqualTo(50);
+        assertThat(result.getContent().get(0).lotCount())
+                .isEqualTo(1);
         assertThat(result.getContent().get(0).warehouseId()).isEqualTo(1L);
     }
 
@@ -70,7 +89,7 @@ class InventoryQueryServiceTest {
     @DisplayName("재고 목록 조회: 재고가 없으면 빈 목록을 반환한다")
     void getInventoriesEmpty() {
 
-        given(inventoryRepository.findAll(any(Pageable.class)))
+        given(inventoryRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .willReturn(Page.empty());
 
         Page<InventoryResponse> result =
@@ -84,6 +103,19 @@ class InventoryQueryServiceTest {
     void getInventorySuccess() {
 
         Inventory inventory = createInventory();
+
+        InventoryLot lot = InventoryLot.create(
+                inventory,
+                "TEST-VALID-LOT",
+                LocalDate.now().plusDays(180),
+                java.time.Instant.now()
+        );
+        lot.increase(50);
+
+        given(inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                )).willReturn(List.of(lot));
 
         given(inventoryRepository.findById(INVENTORY_ID))
                 .willReturn(Optional.of(inventory));
@@ -164,6 +196,67 @@ class InventoryQueryServiceTest {
                 .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
                         999L
                 );
+    }
+
+
+    @Test
+    @DisplayName("재고 목록: 검색 조건을 전달하면 Specification 조회를 사용한다")
+    void searchInventoriesWithFilters() {
+        given(inventoryRepository.findAll(
+                any(Specification.class),
+                any(Pageable.class)
+        )).willReturn(Page.empty());
+
+        Page<InventoryResponse> result =
+                inventoryQueryService.getInventories(
+                        "의약품", 1L, 3L, 1, 20
+                );
+
+        assertThat(result.getContent()).isEmpty();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Specification<Inventory>> specificationCaptor =
+                ArgumentCaptor.forClass(Specification.class);
+
+        ArgumentCaptor<Pageable> pageableCaptor =
+                ArgumentCaptor.forClass(Pageable.class);
+
+        verify(inventoryRepository).findAll(
+                specificationCaptor.capture(),
+                pageableCaptor.capture()
+        );
+
+        assertThat(specificationCaptor.getValue()).isNotNull();
+        assertThat(pageableCaptor.getValue().getPageNumber())
+                .isZero();
+        assertThat(pageableCaptor.getValue().getPageSize())
+                .isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("재고 목록: 페이지 크기는 최대 100개로 제한된다")
+    void inventoryPageSizeLimitedTo100() {
+        given(inventoryRepository.findAll(
+                any(Specification.class),
+                any(Pageable.class)
+        )).willReturn(Page.empty());
+
+        inventoryQueryService.getInventories(
+                null, null, null, 2, 500
+        );
+
+        ArgumentCaptor<Pageable> pageableCaptor =
+                ArgumentCaptor.forClass(Pageable.class);
+
+        verify(inventoryRepository).findAll(
+                any(Specification.class),
+                pageableCaptor.capture()
+        );
+
+        assertThat(pageableCaptor.getValue().getPageNumber())
+                .isEqualTo(1);
+        assertThat(pageableCaptor.getValue().getPageSize())
+                .isEqualTo(100);
     }
 
     private Inventory createInventory() {

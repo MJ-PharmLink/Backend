@@ -1,7 +1,6 @@
 package com.pharmlink.backend.domain.inventory.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pharmlink.backend.domain.inventory.entity.Inventory;
 
 public record InventoryResponse(
 
@@ -27,19 +26,24 @@ public record InventoryResponse(
         int quantity,
 
         @JsonProperty("safety_stock")
-        int safetyStock
-) {
+        int safetyStock,
 
-    public static InventoryResponse from(Inventory inventory) {
-        return new InventoryResponse(
-                inventory.getInventoryId(),
-                inventory.getWarehouse().getWarehouseId(),
-                inventory.getWarehouse().getName(),
-                inventory.getItem().getItemId(),
-                inventory.getItem().getItemCode(),
-                inventory.getItem().getItemName(),
-                inventory.getQuantity(),
-                inventory.getItem().getSafetyStock()
-        );
-    }
+        @JsonProperty("item_status")
+        String itemStatus,
+
+        @JsonProperty("available_quantity")
+        int availableQuantity,
+
+        @JsonProperty("stock_status")
+        String stockStatus,
+
+        @JsonProperty("lot_count")
+        int lotCount,
+
+        @JsonProperty("nearest_expiry_date")
+        java.time.LocalDate nearestExpiryDate,
+
+        @JsonProperty("expiry_status")
+        String expiryStatus
+) {
 }

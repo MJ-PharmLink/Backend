@@ -26,11 +26,23 @@ public class InventoryController {
     @PreAuthorize(AccessRole.ALL)
     @GetMapping
     public ApiResponse<List<InventoryResponse>> getInventories(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(name = "warehouse_id", required = false)
+            Long warehouseId,
+            @RequestParam(name = "category_id", required = false)
+            Long categoryId,
             @RequestParam(required = false) Integer page,
-            @RequestParam(name = "page_size", required = false) Integer pageSize
+            @RequestParam(name = "page_size", required = false)
+            Integer pageSize
     ) {
         Page<InventoryResponse> inventories =
-                inventoryQueryService.getInventories(page, pageSize);
+                inventoryQueryService.getInventories(
+                        keyword,
+                        warehouseId,
+                        categoryId,
+                        page,
+                        pageSize
+                );
 
         return ApiResponse.success(inventories);
     }
