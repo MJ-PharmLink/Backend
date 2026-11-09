@@ -3,6 +3,8 @@ package com.pharmlink.backend.domain.inventory.controller;
 import com.pharmlink.backend.domain.inventory.dto.InventoryLotResponse;
 import com.pharmlink.backend.domain.inventory.dto.InventoryResponse;
 import com.pharmlink.backend.domain.inventory.dto.InventoryDetailResponse;
+import com.pharmlink.backend.domain.inventory.dto.ExpiringInventoryResponse;
+import com.pharmlink.backend.domain.inventory.service.InventoryExpiringQueryService;
 import com.pharmlink.backend.domain.inventory.service.InventoryQueryService;
 import com.pharmlink.backend.global.response.ApiResponse;
 import com.pharmlink.backend.global.security.AccessRole;
@@ -21,6 +23,7 @@ import java.util.List;
 public class InventoryController {
 
     private final InventoryQueryService inventoryQueryService;
+    private final InventoryExpiringQueryService inventoryExpiringQueryService;
 
     // 1. 재고 목록 조회
     // GET /api/v1/inventories?page=1&page_size=20
@@ -55,6 +58,33 @@ public class InventoryController {
                 );
 
         return ApiResponse.success(inventories);
+    }
+
+
+    // 7.3 유통기한 만료 및 임박 LOT 조회
+    // GET /api/v1/inventories/expiring
+    @PreAuthorize(AccessRole.ADMIN_WAREHOUSE)
+    @GetMapping("/expiring")
+    public ApiResponse<List<ExpiringInventoryResponse>> getExpiringInventories(
+            @RequestParam(required = false) Integer days,
+            @RequestParam(name = "expiry_status", required = false)
+            String expiryStatus,
+            @RequestParam(name = "warehouse_id", required = false)
+            Long warehouseId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(name = "page_size", required = false)
+            Integer pageSize
+    ) {
+        Page<ExpiringInventoryResponse> results =
+                inventoryExpiringQueryService.getExpiringInventories(
+                        days,
+                        expiryStatus,
+                        warehouseId,
+                        page,
+                        pageSize
+                );
+
+        return ApiResponse.success(results);
     }
 
     // 2. 재고 상세 조회

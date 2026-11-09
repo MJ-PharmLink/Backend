@@ -4,6 +4,8 @@ package com.pharmlink.backend.domain.inventory.repository;
 import com.pharmlink.backend.domain.inventory.entity.InventoryLot;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -45,4 +47,49 @@ public interface InventoryLotRepository extends JpaRepository<InventoryLot, Long
     List<InventoryLot> findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
             Long inventoryId
     );
+
+    // 유통기한 만료 및 임박 LOT 조회
+    // 만료 LOT는 days 제한 없이 조회하고, 임박 LOT에만 days를 적용한다.
+    @Query(
+            value = """
+                    select l
+                    from InventoryLot l
+                    join fetch l.inventory i
+                    join fetch i.item
+                    where l.quantity > 0
+                      and (:warehouseId is null
+                           or i.warehouse.warehouseId = :warehouseId)
+                      and (
+                           (:includeExpired = true
+                            and l.expiryDate < :today)
+                           or
+                           (:includeSoon = true
+                            and l.expiryDate between :today and :expiryLimit)
+                      )
+                    order by l.expiryDate asc, l.lotId asc
+                    """,
+            countQuery = """
+                    select count(l)
+                    from InventoryLot l
+                    where l.quantity > 0
+                      and (:warehouseId is null
+                           or l.inventory.warehouse.warehouseId = :warehouseId)
+                      and (
+                           (:includeExpired = true
+                            and l.expiryDate < :today)
+                           or
+                           (:includeSoon = true
+                            and l.expiryDate between :today and :expiryLimit)
+                      )
+                    """
+    )
+    Page<InventoryLot> searchExpiringLots(
+            @Param("warehouseId") Long warehouseId,
+            @Param("today") LocalDate today,
+            @Param("expiryLimit") LocalDate expiryLimit,
+            @Param("includeExpired") boolean includeExpired,
+            @Param("includeSoon") boolean includeSoon,
+            Pageable pageable
+    );
+
 }
