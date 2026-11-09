@@ -31,6 +31,12 @@ public class InventoryController {
             Long warehouseId,
             @RequestParam(name = "category_id", required = false)
             Long categoryId,
+            @RequestParam(name = "stock_status", required = false)
+            String stockStatus,
+            @RequestParam(name = "item_status", required = false)
+            String itemStatus,
+            @RequestParam(name = "expiry_status", required = false)
+            String expiryStatus,
             @RequestParam(required = false) Integer page,
             @RequestParam(name = "page_size", required = false)
             Integer pageSize
@@ -40,6 +46,9 @@ public class InventoryController {
                         keyword,
                         warehouseId,
                         categoryId,
+                        stockStatus,
+                        itemStatus,
+                        expiryStatus,
                         page,
                         pageSize
                 );

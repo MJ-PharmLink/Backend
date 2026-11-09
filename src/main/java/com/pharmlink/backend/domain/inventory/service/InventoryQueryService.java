@@ -52,6 +52,58 @@ public class InventoryQueryService {
             Integer page,
             Integer pageSize
     ) {
+        return getInventories(
+                keyword, warehouseId, categoryId,
+                null, null, page, pageSize
+        );
+    }
+
+    public Page<InventoryResponse> getInventories(
+            String keyword,
+            Long warehouseId,
+            Long categoryId,
+            String stockStatus,
+            String itemStatus,
+            Integer page,
+            Integer pageSize
+    ) {
+        return getInventories(
+                keyword, warehouseId, categoryId,
+                stockStatus, itemStatus, null, page, pageSize
+        );
+    }
+
+    public Page<InventoryResponse> getInventories(
+            String keyword,
+            Long warehouseId,
+            Long categoryId,
+            String stockStatus,
+            String itemStatus,
+            String expiryStatus,
+            Integer page,
+            Integer pageSize
+    ) {
+        if (stockStatus != null && !java.util.Set.of(
+                "NORMAL", "LOW_STOCK", "OUT_OF_STOCK"
+        ).contains(stockStatus)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        if (itemStatus != null && !java.util.Set.of(
+                "ACTIVE", "DISCONTINUED"
+        ).contains(itemStatus)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        if (expiryStatus != null && !java.util.Set.of(
+                "NORMAL", "EXPIRING_SOON", "EXPIRED"
+        ).contains(expiryStatus)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        LocalDate today = LocalDate.now(KST);
+        LocalDate expiryLimit = today.plusDays(EXPIRING_SOON_DAYS);
+
         Pageable pageable = PageRequestFactory.of(
                 page,
                 pageSize,
@@ -97,6 +149,104 @@ public class InventoryQueryService {
                                         .get("categoryId"),
                                 categoryId
                         ));
+                    }
+
+                    if (stockStatus != null) {
+                        var quantity = root.<Integer>get("quantity");
+                        var safetyStock = root.get("item")
+                                .<Integer>get("safetyStock");
+
+                        switch (stockStatus) {
+                            case "OUT_OF_STOCK" ->
+                                    predicates.add(cb.equal(quantity, 0));
+                            case "LOW_STOCK" ->
+                                    predicates.add(cb.and(
+                                            cb.gt(quantity, 0),
+                                            cb.lessThanOrEqualTo(
+                                                    quantity, safetyStock
+                                            )
+                                    ));
+                            case "NORMAL" ->
+                                    predicates.add(cb.greaterThan(
+                                            quantity, safetyStock
+                                    ));
+                        }
+                    }
+
+                    if (itemStatus != null) {
+                        predicates.add(cb.equal(
+                                root.get("item").get("isActive"),
+                                "ACTIVE".equals(itemStatus)
+                        ));
+                    }
+
+                    if (expiryStatus != null) {
+                        var expiredQuery = query.subquery(Long.class);
+                        var expiredLot = expiredQuery.from(
+                                com.pharmlink.backend.domain.inventory.entity.InventoryLot.class
+                        );
+
+                        expiredQuery.select(expiredLot.get("lotId"))
+                                .where(
+                                        cb.equal(
+                                                expiredLot.get("inventory")
+                                                        .get("inventoryId"),
+                                                root.get("inventoryId")
+                                        ),
+                                        cb.gt(expiredLot.get("quantity"), 0),
+                                        cb.lessThan(
+                                                expiredLot.<LocalDate>get("expiryDate"),
+                                                today
+                                        )
+                                );
+
+                        var soonQuery = query.subquery(Long.class);
+                        var soonLot = soonQuery.from(
+                                com.pharmlink.backend.domain.inventory.entity.InventoryLot.class
+                        );
+
+                        soonQuery.select(soonLot.get("lotId"))
+                                .where(
+                                        cb.equal(
+                                                soonLot.get("inventory")
+                                                        .get("inventoryId"),
+                                                root.get("inventoryId")
+                                        ),
+                                        cb.gt(soonLot.get("quantity"), 0),
+                                        cb.between(
+                                                soonLot.<LocalDate>get("expiryDate"),
+                                                today,
+                                                expiryLimit
+                                        )
+                                );
+
+                        var hasExpired = cb.exists(expiredQuery);
+                        var hasSoon = cb.exists(soonQuery);
+                        var hasStock = cb.gt(
+                                root.<Integer>get("quantity"), 0
+                        );
+
+                        switch (expiryStatus) {
+                            case "EXPIRED" ->
+                                    predicates.add(cb.and(
+                                            hasStock,
+                                            hasExpired
+                                    ));
+                            case "EXPIRING_SOON" ->
+                                    predicates.add(cb.and(
+                                            hasStock,
+                                            cb.not(hasExpired),
+                                            hasSoon
+                                    ));
+                            case "NORMAL" ->
+                                    predicates.add(cb.or(
+                                            cb.not(hasStock),
+                                            cb.and(
+                                                    cb.not(hasExpired),
+                                                    cb.not(hasSoon)
+                                            )
+                                    ));
+                        }
                     }
 
                     return cb.and(
