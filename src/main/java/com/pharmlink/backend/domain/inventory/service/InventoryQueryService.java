@@ -270,20 +270,61 @@ public class InventoryQueryService {
         return toResponse(inventory);
     }
 
-    private InventoryResponse toResponse(Inventory inventory) {
-        var item = inventory.getItem();
-        int quantity = inventory.getQuantity();
-        int safetyStock = item.getSafetyStock();
 
+    public com.pharmlink.backend.domain.inventory.dto.InventoryDetailResponse
+    getInventoryDetail(Long inventoryId) {
+
+        Inventory inventory = inventoryRepository.findById(inventoryId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.INVENTORY_NOT_FOUND)
+                );
+
+        LocalDate today = LocalDate.now(KST);
+
+        var allLots = inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        inventoryId
+                );
+
+        var visibleLots = allLots.stream()
+                .filter(lot -> lot.getQuantity() > 0)
+                .map(lot ->
+                        com.pharmlink.backend.domain.inventory.dto
+                                .InventoryDetailLotResponse.from(
+                                        lot, today, EXPIRING_SOON_DAYS
+                                )
+                )
+                .toList();
+
+        return com.pharmlink.backend.domain.inventory.dto
+                .InventoryDetailResponse.from(
+                        toResponse(inventory, allLots, today),
+                        visibleLots
+                );
+    }
+
+    private InventoryResponse toResponse(Inventory inventory) {
         var lots = inventoryLotRepository
                 .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
                         inventory.getInventoryId()
                 );
 
+        return toResponse(inventory, lots, LocalDate.now(KST));
+    }
+
+    private InventoryResponse toResponse(
+            Inventory inventory,
+            List<com.pharmlink.backend.domain.inventory.entity.InventoryLot> lots,
+            LocalDate today
+    ) {
+        var item = inventory.getItem();
+        int quantity = inventory.getQuantity();
+        int safetyStock = item.getSafetyStock();
+
         var summary = InventoryStatusCalculator.summarize(
                 quantity,
                 lots,
-                LocalDate.now(KST),
+                today,
                 EXPIRING_SOON_DAYS
         );
 

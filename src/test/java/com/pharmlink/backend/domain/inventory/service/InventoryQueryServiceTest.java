@@ -1,5 +1,9 @@
 package com.pharmlink.backend.domain.inventory.service;
 
+import com.pharmlink.backend.domain.inventory.dto.InventoryDetailResponse;
+import java.time.Instant;
+import java.time.ZoneId;
+import static org.mockito.Mockito.times;
 import com.pharmlink.backend.domain.inventory.dto.InventoryLotResponse;
 import com.pharmlink.backend.domain.inventory.dto.InventoryResponse;
 import com.pharmlink.backend.domain.inventory.entity.Inventory;
@@ -257,6 +261,174 @@ class InventoryQueryServiceTest {
                 .isEqualTo(1);
         assertThat(pageableCaptor.getValue().getPageSize())
                 .isEqualTo(100);
+    }
+
+
+    @Test
+    @DisplayName("7.2 상세 조회: 만료 및 정상 LOT 포함, 수량 0 LOT 제외, 조회 1회")
+    void getInventoryDetailMixedLots() {
+        Inventory inventory = createInventory();
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        Instant receivedAt = Instant.parse("2026-11-01T00:00:00Z");
+
+        InventoryLot expired = InventoryLot.create(
+                inventory, "EXPIRED-LOT",
+                today.minusDays(1), receivedAt
+        );
+        expired.increase(10);
+
+        InventoryLot normal = InventoryLot.create(
+                inventory, "NORMAL-LOT",
+                today.plusDays(120), receivedAt
+        );
+        normal.increase(40);
+
+        InventoryLot empty = InventoryLot.create(
+                inventory, "EMPTY-LOT",
+                today.plusDays(180), receivedAt
+        );
+
+        given(inventoryRepository.findById(INVENTORY_ID))
+                .willReturn(Optional.of(inventory));
+
+        given(inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                ))
+                .willReturn(List.of(expired, normal, empty));
+
+        InventoryDetailResponse result =
+                inventoryQueryService.getInventoryDetail(INVENTORY_ID);
+
+        assertThat(result.inventoryId()).isEqualTo(INVENTORY_ID);
+        assertThat(result.quantity()).isEqualTo(50);
+        assertThat(result.availableQuantity()).isEqualTo(40);
+        assertThat(result.expiryStatus()).isEqualTo("EXPIRED");
+        assertThat(result.lots()).hasSize(2);
+
+        assertThat(result.lots().get(0).lotNumber())
+                .isEqualTo("EXPIRED-LOT");
+        assertThat(result.lots().get(0).expiryStatus())
+                .isEqualTo("EXPIRED");
+        assertThat(result.lots().get(0).quantity())
+                .isEqualTo(10);
+        assertThat(result.lots().get(0).receivedAt())
+                .isEqualTo(receivedAt);
+
+        assertThat(result.lots().get(1).lotNumber())
+                .isEqualTo("NORMAL-LOT");
+        assertThat(result.lots().get(1).expiryStatus())
+                .isEqualTo("NORMAL");
+
+        assertThat(result.lots())
+                .extracting(lot -> lot.lotNumber())
+                .doesNotContain("EMPTY-LOT");
+
+        verify(inventoryLotRepository, times(1))
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                );
+    }
+
+    @Test
+    @DisplayName("7.2 상세 조회: 재고가 0이면 수량 0 LOT을 제외한다")
+    void getInventoryDetailZeroQuantity() {
+        Inventory inventory = createInventory();
+        inventory.decrease(50);
+
+        InventoryLot empty = InventoryLot.create(
+                inventory,
+                "EMPTY-LOT",
+                LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(30),
+                Instant.parse("2026-11-01T00:00:00Z")
+        );
+
+        given(inventoryRepository.findById(INVENTORY_ID))
+                .willReturn(Optional.of(inventory));
+
+        given(inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                ))
+                .willReturn(List.of(empty));
+
+        InventoryDetailResponse result =
+                inventoryQueryService.getInventoryDetail(INVENTORY_ID);
+
+        assertThat(result.quantity()).isZero();
+        assertThat(result.availableQuantity()).isZero();
+        assertThat(result.stockStatus()).isEqualTo("OUT_OF_STOCK");
+        assertThat(result.expiryStatus()).isEqualTo("NORMAL");
+        assertThat(result.lots()).isEmpty();
+
+        verify(inventoryLotRepository, times(1))
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                );
+    }
+
+    @Test
+    @DisplayName("7.2 상세 조회: 유통기한 D+90 경계 상태를 계산한다")
+    void getInventoryDetailExpiryBoundary() {
+        Inventory inventory = createInventory();
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        Instant receivedAt = Instant.parse("2026-11-01T00:00:00Z");
+
+        InventoryLot soon = InventoryLot.create(
+                inventory, "D90-LOT",
+                today.plusDays(90), receivedAt
+        );
+        soon.increase(25);
+
+        InventoryLot normal = InventoryLot.create(
+                inventory, "D91-LOT",
+                today.plusDays(91), receivedAt
+        );
+        normal.increase(25);
+
+        given(inventoryRepository.findById(INVENTORY_ID))
+                .willReturn(Optional.of(inventory));
+
+        given(inventoryLotRepository
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                ))
+                .willReturn(List.of(soon, normal));
+
+        InventoryDetailResponse result =
+                inventoryQueryService.getInventoryDetail(INVENTORY_ID);
+
+        assertThat(result.availableQuantity()).isEqualTo(50);
+        assertThat(result.expiryStatus()).isEqualTo("EXPIRING_SOON");
+        assertThat(result.lots()).hasSize(2);
+        assertThat(result.lots().get(0).expiryStatus())
+                .isEqualTo("EXPIRING_SOON");
+        assertThat(result.lots().get(1).expiryStatus())
+                .isEqualTo("NORMAL");
+
+        verify(inventoryLotRepository, times(1))
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        INVENTORY_ID
+                );
+    }
+
+    @Test
+    @DisplayName("7.2 상세 조회: 없는 재고는 INVENTORY_NOT_FOUND")
+    void getInventoryDetailNotFound() {
+        given(inventoryRepository.findById(999L))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                inventoryQueryService.getInventoryDetail(999L)
+        )
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INVENTORY_NOT_FOUND);
+
+        verify(inventoryLotRepository, never())
+                .findByInventoryInventoryIdOrderByExpiryDateAscLotIdAsc(
+                        999L
+                );
     }
 
     private Inventory createInventory() {

@@ -2,6 +2,7 @@ package com.pharmlink.backend.domain.inventory.controller;
 
 import com.pharmlink.backend.domain.inventory.dto.InventoryLotResponse;
 import com.pharmlink.backend.domain.inventory.dto.InventoryResponse;
+import com.pharmlink.backend.domain.inventory.dto.InventoryDetailResponse;
 import com.pharmlink.backend.domain.inventory.service.InventoryQueryService;
 import com.pharmlink.backend.global.response.ApiResponse;
 import com.pharmlink.backend.global.security.AccessRole;
@@ -60,11 +61,11 @@ public class InventoryController {
     // GET /api/v1/inventories/{inventoryId}
     @PreAuthorize(AccessRole.ALL)
     @GetMapping("/{inventoryId}")
-    public ApiResponse<InventoryResponse> getInventory(
+    public ApiResponse<InventoryDetailResponse> getInventory(
             @PathVariable Long inventoryId
     ) {
         return ApiResponse.success(
-                inventoryQueryService.getInventory(inventoryId)
+                inventoryQueryService.getInventoryDetail(inventoryId)
         );
     }
 
