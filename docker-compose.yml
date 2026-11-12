@@ -1,16 +1,63 @@
-version: '3.8'
+
 services:
   mysql:
     image: mysql:8.0
     container_name: pharm-erp-db
+
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-pharm_erp}
       TZ: Asia/Seoul
+
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3307:3306"
+
     volumes:
       - mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql -h 127.0.0.1 -uroot -e "SELECT 1" >/dev/null 2>&1'
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: pharm-erp-backend
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/pharm_erp?serverTimezone=Asia/Seoul&characterEncoding=UTF-8"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      TZ: Asia/Seoul
+
+    volumes:
+      - ./src/main/resources/application-secret.yml:/app/config/application-secret.yml:ro
+
+    command:
+      - java
+      - -cp
+      - /app/config:/app/app.jar
+      - org.springframework.boot.loader.launch.JarLauncher
+
+    entrypoint: []
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    restart: unless-stopped
 
 volumes:
   mysql_data:

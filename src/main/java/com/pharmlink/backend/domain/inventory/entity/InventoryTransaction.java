@@ -90,6 +90,39 @@ public class InventoryTransaction {
         return of(TransactionType.OUT, ReferenceType.ORDER, orderId, lot, quantity, createdBy);
     }
 
+    // 재고 조정 이력 (ADJUST_IN / ADJUST_OUT)
+    // 반드시 Inventory와 InventoryLot 수량을 변경한 후 호출한다.
+    public static InventoryTransaction adjustment(
+            TransactionType type,
+            InventoryLot lot,
+            int quantity,
+            String reason,
+            String memo,
+            Long createdBy
+    ) {
+        if (type != TransactionType.ADJUST_IN
+                && type != TransactionType.ADJUST_OUT) {
+            throw new IllegalArgumentException(
+                    "재고 조정 이력에는 ADJUST_IN 또는 ADJUST_OUT만 사용할 수 있습니다."
+            );
+        }
+
+        InventoryTransaction transaction = of(
+                type,
+                ReferenceType.ADJUSTMENT,
+                null,
+                lot,
+                quantity,
+                createdBy
+        );
+
+        transaction.reason = reason;
+        transaction.memo = memo;
+
+        return transaction;
+    }
+
+
     private static InventoryTransaction of(TransactionType type, ReferenceType referenceType, Long referenceId,
                                            InventoryLot lot, int quantity, Long createdBy) {
         Inventory inventory = lot.getInventory();

@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+**/application-secret.yml
+**/application-secret.yaml
+
+# Gradle
+.gradle
+build
+**/build
+
+# IDE and OS files
+.idea
+.vscode
+.DS_Store
+*.iml
+
+# Logs
+*.log
+logs/
+
+# Local files
+node_modules/
