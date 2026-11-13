@@ -1,0 +1,7 @@
+# 운영(AWS ECS) 프로필. SPRING_PROFILES_ACTIVE=prod 일 때 application.yaml 위에 덮어쓴다.
+spring:
+  jpa:
+    show-sql: false   # 운영 로그(CloudWatch)에 모든 SQL이 쌓이지 않게 끈다
+    properties:
+      hibernate:
+        format_sql: false
