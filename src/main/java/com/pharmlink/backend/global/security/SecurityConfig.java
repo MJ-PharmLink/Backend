@@ -48,6 +48,8 @@ public class SecurityConfig {
                         // 서버 내부 오류 포워딩(/error)이 401로 덮이지 않게 허용
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
+                        // ALB 헬스체크 (토큰 없이 호출됨)
+                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(authenticationEntryPoint)

@@ -18,8 +18,14 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
+# root가 아닌 전용 사용자로 실행
+RUN groupadd --system app && useradd --system --gid app --no-create-home app
+
 COPY --from=builder /app/build/libs/*.jar app.jar
+
+USER app
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# 컨테이너 메모리(ECS task 1GB)의 75%까지만 힙으로 사용해 메모리 초과 종료를 막는다
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]
