@@ -1,24 +1,32 @@
 package com.pharmlink.backend.domain.ai.service;
 
+import com.pharmlink.backend.domain.ai.client.GeminiLlmClient;
 import com.pharmlink.backend.domain.ai.dto.AiChatRequest;
 import com.pharmlink.backend.domain.ai.dto.AiChatResponse;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AiChatServiceTest {
 
-    private final AiChatService aiChatService = new AiChatService();
-
     @Test
-    void chatReturnsTestResponse() {
-        AiChatRequest request =
-                new AiChatRequest("재고 부족 상품 알려줘");
+    void chatReturnsGeminiAnswer() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
 
-        AiChatResponse response = aiChatService.chat(request);
+        String question = "PharmLink ERP가 무엇인가요?";
+        String expectedAnswer = "PharmLink는 제약 유통업체를 위한 ERP입니다.";
 
-        assertEquals("TEST", response.intent());
-        assertTrue(response.answer().contains("재고 부족 상품 알려줘"));
+        when(client.generateAnswer(question)).thenReturn(expectedAnswer);
+
+        AiChatService service = new AiChatService(client);
+        AiChatResponse response = service.chat(new AiChatRequest(question));
+
+        assertEquals(expectedAnswer, response.answer());
+        assertEquals("GENERAL", response.intent());
+
+        verify(client).generateAnswer(question);
     }
 }

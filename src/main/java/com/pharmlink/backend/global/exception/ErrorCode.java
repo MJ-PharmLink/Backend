@@ -66,7 +66,11 @@ public enum ErrorCode {
     INVENTORY_UPDATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "재고 증감 처리에 실패했습니다."),
     SALE_CREATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "매출 기록 생성에 실패했습니다."),
     PDF_GENERATION_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "PDF 생성에 실패했습니다."),
-    INVENTORY_QUERY_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "재고 조회에 실패했습니다.");
+    INVENTORY_QUERY_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "재고 조회에 실패했습니다."),
+
+    // 503
+    AI_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
+            "AI 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;
