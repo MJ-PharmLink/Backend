@@ -15,6 +15,7 @@ import tools.jackson.databind.JsonNode;
 public class AiChatService {
 
     private static final String LOW_STOCK_FUNCTION = "get_low_stock_items";
+    private static final String INVENTORY_FUNCTION = "get_inventory_items";
 
     private final GeminiLlmClient geminiLlmClient;
     private final AiInventoryTool aiInventoryTool;
@@ -62,7 +63,8 @@ public class AiChatService {
 
         String functionName = selectedFunction.path("name").asText();
 
-        if (!LOW_STOCK_FUNCTION.equals(functionName)) {
+        if (!LOW_STOCK_FUNCTION.equals(functionName)
+                && !INVENTORY_FUNCTION.equals(functionName)) {
             throw aiServiceError();
         }
 
@@ -75,16 +77,50 @@ public class AiChatService {
         Long warehouseId = readWarehouseId(args.path("warehouse_id"));
         Integer page = readPage(args.path("page"));
 
-        AiInventoryTool.LowStockResult result =
-                aiInventoryTool.getLowStockItems(warehouseId, page);
+        if (LOW_STOCK_FUNCTION.equals(functionName)) {
+            AiInventoryTool.LowStockResult result =
+                    aiInventoryTool.getLowStockItems(warehouseId, page);
+
+            String answer = geminiLlmClient.generateFunctionAnswer(
+                    request.message(),
+                    modelContent,
+                    result
+            );
+
+            return new AiChatResponse(answer, "LOW_STOCK");
+        }
+
+        String keyword = readKeyword(args.path("keyword"));
+
+        AiInventoryTool.InventorySearchResult result =
+                aiInventoryTool.getInventoryItems(keyword, warehouseId, page);
 
         String answer = geminiLlmClient.generateFunctionAnswer(
                 request.message(),
                 modelContent,
+                INVENTORY_FUNCTION,
                 result
         );
 
-        return new AiChatResponse(answer, "LOW_STOCK");
+        return new AiChatResponse(answer, "INVENTORY");
+    }
+
+    private String readKeyword(JsonNode value) {
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+
+        if (!value.isTextual()) {
+            throw aiServiceError();
+        }
+
+        String keyword = value.asText().trim();
+
+        if (keyword.length() > 100) {
+            throw aiServiceError();
+        }
+
+        return keyword.isBlank() ? null : keyword;
     }
 
     private Long readWarehouseId(JsonNode value) {

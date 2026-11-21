@@ -2,6 +2,7 @@ package com.pharmlink.backend.domain.ai.tool;
 
 import com.pharmlink.backend.domain.dashboard.dto.LowStockItemResponse;
 import com.pharmlink.backend.domain.dashboard.service.DashboardService;
+import com.pharmlink.backend.domain.inventory.service.InventoryQueryService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +43,10 @@ class AiInventoryToolTest {
     @Test
     void returnsLowStockItems() {
         DashboardService dashboardService = mock(DashboardService.class);
-        AiInventoryTool tool = new AiInventoryTool(dashboardService);
+        AiInventoryTool tool = new AiInventoryTool(
+                dashboardService,
+                mock(InventoryQueryService.class)
+        );
 
         Page<LowStockItemResponse> page = new PageImpl<>(
                 List.of(),
@@ -67,7 +71,10 @@ class AiInventoryToolTest {
     @Test
     void limitsPageNumberToMaximum() {
         DashboardService dashboardService = mock(DashboardService.class);
-        AiInventoryTool tool = new AiInventoryTool(dashboardService);
+        AiInventoryTool tool = new AiInventoryTool(
+                dashboardService,
+                mock(InventoryQueryService.class)
+        );
 
         Page<LowStockItemResponse> page = new PageImpl<>(List.of());
 
@@ -82,7 +89,10 @@ class AiInventoryToolTest {
     @Test
     void defaultsPageNumberToOne() {
         DashboardService dashboardService = mock(DashboardService.class);
-        AiInventoryTool tool = new AiInventoryTool(dashboardService);
+        AiInventoryTool tool = new AiInventoryTool(
+                dashboardService,
+                mock(InventoryQueryService.class)
+        );
 
         Page<LowStockItemResponse> page = new PageImpl<>(List.of());
 

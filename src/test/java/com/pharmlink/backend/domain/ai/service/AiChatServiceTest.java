@@ -160,4 +160,72 @@ class AiChatServiceTest {
         verify(inventoryTool, never())
                 .getLowStockItems(any(), any());
     }
+
+    @Test
+    void inventoryQuestionExecutesInventorySearchTool() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
+        AiInventoryTool inventoryTool = mock(AiInventoryTool.class);
+
+        String question = "1번 창고의 해열진통제 재고 알려줘";
+
+        JsonNode modelContent = mapper.readTree("""
+                {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "get_inventory_items",
+                        "args": {
+                          "keyword": "해열진통제",
+                          "warehouse_id": 1,
+                          "page": 1
+                        }
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        AiInventoryTool.InventorySearchResult result =
+                new AiInventoryTool.InventorySearchResult(
+                        List.of(),
+                        0,
+                        1,
+                        0,
+                        false
+                );
+
+        when(client.requestFunctionDecision(question))
+                .thenReturn(modelContent);
+
+        when(inventoryTool.getInventoryItems("해열진통제", 1L, 1))
+                .thenReturn(result);
+
+        when(client.generateFunctionAnswer(
+                question,
+                modelContent,
+                "get_inventory_items",
+                result
+        )).thenReturn("1번 창고에 해당 상품의 재고가 없습니다.");
+
+        AiChatService service = new AiChatService(client, inventoryTool);
+
+        AiChatResponse response =
+                service.chat(new AiChatRequest(question));
+
+        assertEquals("INVENTORY", response.intent());
+        assertEquals(
+                "1번 창고에 해당 상품의 재고가 없습니다.",
+                response.answer()
+        );
+
+        verify(inventoryTool).getInventoryItems("해열진통제", 1L, 1);
+        verify(client).generateFunctionAnswer(
+                question,
+                modelContent,
+                "get_inventory_items",
+                result
+        );
+    }
+
 }

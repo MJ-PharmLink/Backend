@@ -122,6 +122,10 @@ public class GeminiLlmClient {
                 페이지가 명시되지 않았으면 첫 페이지를 조회하세요.
                 실제 데이터는 추측하거나 만들어내지 마세요.
                 일반적인 ERP 사용법 질문에는 한국어로 답변하세요.
+                일반 상품 재고나 특정 창고의 재고를 물으면
+                get_inventory_items 함수를 사용하세요.
+                상품명 또는 상품코드는 keyword 인자로 전달하세요.
+                부족 재고만 물으면 get_low_stock_items를 사용하세요.
                 재고 변경, 상품 삭제 등 데이터 변경은 수행할 수 없습니다.
                 """;
 
@@ -147,6 +151,34 @@ public class GeminiLlmClient {
                 "parameters", parameters
         );
 
+        Map<String, Object> inventoryDeclaration = Map.of(
+                "name", "get_inventory_items",
+                "description",
+                "실제 ERP의 상품별 또는 창고별 재고를 조회합니다. "
+                + "상품명, 상품코드, 창고 번호로 재고를 검색할 때 사용합니다. "
+                + "부족 재고만 요청하는 경우에는 get_low_stock_items를 사용하세요.",
+                "parameters", Map.of(
+                        "type", "OBJECT",
+                        "properties", Map.of(
+                                "keyword", Map.of(
+                                        "type", "STRING",
+                                        "description",
+                                        "검색할 상품명 또는 상품코드. 없으면 생략"
+                                ),
+                                "warehouse_id", Map.of(
+                                        "type", "INTEGER",
+                                        "description",
+                                        "조회할 창고 ID. 없으면 생략"
+                                ),
+                                "page", Map.of(
+                                        "type", "INTEGER",
+                                        "description",
+                                        "1부터 시작하는 페이지 번호. 기본값 1"
+                                )
+                        )
+                )
+        );
+
         Map<String, Object> requestBody = Map.of(
                 "systemInstruction", Map.of(
                         "parts", List.of(Map.of("text", systemPrompt))
@@ -159,7 +191,7 @@ public class GeminiLlmClient {
                 ),
                 "tools", List.of(
                         Map.of(
-                                "functionDeclarations", List.of(declaration)
+                                "functionDeclarations", List.of(declaration, inventoryDeclaration)
                         )
                 ),
                 "generationConfig", Map.of(
@@ -201,12 +233,26 @@ public class GeminiLlmClient {
             JsonNode modelContent,
             Object functionResult
     ) {
+        return generateFunctionAnswer(
+                question,
+                modelContent,
+                "get_low_stock_items",
+                functionResult
+        );
+    }
+
+    public String generateFunctionAnswer(
+            String question,
+            JsonNode modelContent,
+            String functionName,
+            Object functionResult
+    ) {
         Map<String, Object> functionResponse = Map.of(
                 "role", "user",
                 "parts", List.of(
                         Map.of(
                                 "functionResponse", Map.of(
-                                        "name", "get_low_stock_items",
+                                        "name", functionName,
                                         "response", Map.of(
                                                 "result", functionResult
                                         )
