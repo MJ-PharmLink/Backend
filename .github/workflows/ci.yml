@@ -1,0 +1,64 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # 운영 RDS와 같은 버전·시간대
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-pw
+          MYSQL_DATABASE: pharm_erp
+          TZ: Asia/Seoul
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-pw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    # 테스트 DB와 함께 버려지는 CI 전용 값
+    env:
+      TZ: Asia/Seoul
+      DB_URL: jdbc:mysql://127.0.0.1:3306/pharm_erp?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ci-root-pw
+      JWT_SECRET: ci-only-jwt-secret-0123456789abcdef
+      ADMIN_USERNAME: ciadmin
+      ADMIN_PASSWORD: ci-admin-pw-1234
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: 테스트
+        run: ./gradlew test --no-daemon
+
+      - name: 실패 리포트 업로드
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: build/reports/tests/test
+          retention-days: 7
