@@ -104,7 +104,7 @@ public class AiChatService {
                     "LOW_STOCK",
                     new AiSource(
                             LOW_STOCK_FUNCTION,
-                            "부족 재고 (" + warehouseLabel(warehouseId) + ")",
+                            lowStockTitle(warehouseId),
                             result.items()
                     ),
                     AiQueryContext.of(
@@ -199,17 +199,7 @@ public class AiChatService {
     }
 
     private String expiryTitle(AiExpiryTool.ExpiringResult result, Long warehouseId) {
-        String kind;
-
-        if ("EXPIRED".equals(result.expiryStatus())) {
-            kind = "유통기한 만료";
-        } else if ("EXPIRING_SOON".equals(result.expiryStatus())) {
-            kind = "유통기한 " + result.days() + "일 이내 임박";
-        } else {
-            kind = "유통기한 만료·" + result.days() + "일 이내 임박";
-        }
-
-        return kind + " (" + warehouseLabel(warehouseId) + ")";
+        return "유통기한 임박 재고";
     }
 
     private Integer readDays(JsonNode value) {
@@ -256,11 +246,15 @@ public class AiChatService {
         return warehouseId == null ? "전체 창고" : "창고 " + warehouseId;
     }
 
+    // sources[].title 문구 : 부족 재고 (전체 창고 | 창고 N), 상품 재고 조회, 창고별 재고 조회, 유통기한 임박 재고
+    private String lowStockTitle(Long warehouseId) {
+        return "부족 재고 (" + warehouseLabel(warehouseId) + ")";
+    }
+
     private String inventoryTitle(String keyword, Long warehouseId) {
-        String label = warehouseLabel(warehouseId);
-        return keyword == null
-                ? "재고 조회 (" + label + ")"
-                : "재고 조회 (" + label + ", 검색어: " + keyword + ")";
+        return keyword == null && warehouseId != null
+                ? "창고별 재고 조회"
+                : "상품 재고 조회";
     }
 
     private String readKeyword(JsonNode value) {

@@ -98,6 +98,23 @@ class GeminiLlmClientTest {
     }
 
     @Test
+    void missingApiKeyReturnsServiceUnavailableWithoutCallingGemini() {
+        // 키가 비어 있어도 빈은 만들어지고(서버 기동), 호출 시에만 503
+        GeminiLlmClient client = new GeminiLlmClient(
+                "",
+                "test-model",
+                "http://127.0.0.1:1"
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> client.requestFunctionDecision("부족 재고 알려줘")
+        );
+
+        assertEquals(ErrorCode.AI_SERVICE_UNAVAILABLE, exception.getErrorCode());
+    }
+
+    @Test
     void readTimeoutReturnsGatewayTimeout() throws IOException {
         HttpServer server = HttpServer.create(
                 new InetSocketAddress("127.0.0.1", 0),

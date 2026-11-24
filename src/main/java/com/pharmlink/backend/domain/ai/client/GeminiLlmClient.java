@@ -7,6 +7,7 @@ import com.pharmlink.backend.global.exception.ErrorCode;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import java.net.SocketTimeoutException;
+import java.net.http.HttpClient;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -22,36 +23,46 @@ import org.springframework.web.client.RestClient;
 @Component
 public class GeminiLlmClient {
 
-    private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(45);
+    // 호출당 읽기 제한 : 12초 (ai.gemini.read-timeout 으로 변경 가능)
+    // 운영 CloudFront는 응답을 30초까지만 기다리므로, 한 요청의 Gemini 호출 2번(의도 판단, 답변)이
+    // 30초 안에 끝나도록 둔다. 넘으면 504 AI_TIMEOUT.
+    static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(12);
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
 
     private final RestClient restClient;
     private final String model;
+    private final boolean apiKeyConfigured;
 
-    @Autowired
-    public GeminiLlmClient(
-            @Value("${ai.gemini.api-key}") String apiKey,
-            @Value("${ai.gemini.model:gemini-3.5-flash-lite}") String model,
-            @Value("${ai.gemini.base-url:https://generativelanguage.googleapis.com/v1beta}")
-            String baseUrl
-    ) {
+    // 테스트용 : 기본 읽기 제한(12초)
+    GeminiLlmClient(String apiKey, String model, String baseUrl) {
         this(apiKey, model, baseUrl, DEFAULT_READ_TIMEOUT);
     }
 
-    // 테스트에서 짧은 타임아웃을 주입하기 위한 생성자
-    GeminiLlmClient(
-            String apiKey,
-            String model,
+    @Autowired
+    public GeminiLlmClient(
+            // 키가 없어도 서버는 떠야 한다(CI 테스트, 운영 키 누락) : 그때는 챗봇 API만 503 AI_SERVICE_UNAVAILABLE
+            @Value("${ai.gemini.api-key:}") String apiKey,
+            @Value("${ai.gemini.model:gemini-3.5-flash-lite}") String model,
+            @Value("${ai.gemini.base-url:https://generativelanguage.googleapis.com/v1beta}")
             String baseUrl,
-            Duration readTimeout
+            @Value("${ai.gemini.read-timeout:12s}") Duration readTimeout
     ) {
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build()
+        );
         factory.setReadTimeout(readTimeout);
 
-        this.restClient = RestClient.builder()
+        this.apiKeyConfigured = apiKey != null && !apiKey.isBlank();
+
+        RestClient.Builder builder = RestClient.builder()
                 .baseUrl(baseUrl)
-                .defaultHeader("x-goog-api-key", apiKey)
-                .requestFactory(factory)
-                .build();
+                .requestFactory(factory);
+
+        if (apiKeyConfigured) {
+            builder.defaultHeader("x-goog-api-key", apiKey);
+        }
+
+        this.restClient = builder.build();
 
         this.model = model;
     }
@@ -374,6 +385,10 @@ public class GeminiLlmClient {
 
     // Gemini 호출 공통 처리 : HTTP 상태와 예외 종류에 따라 429/503/504로 나눈다.
     private JsonNode postGenerateContent(Map<String, Object> requestBody) {
+        if (!apiKeyConfigured) {
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+
         JsonNode response;
 
         try {
