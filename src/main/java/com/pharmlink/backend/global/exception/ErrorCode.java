@@ -61,6 +61,10 @@ public enum ErrorCode {
     INVALID_EXPIRY_DATE(HttpStatus.UNPROCESSABLE_CONTENT, "유통기한 값이 올바르지 않습니다."),
     UNPROCESSABLE_ENTITY(HttpStatus.UNPROCESSABLE_CONTENT, "요청 값을 처리할 수 없습니다."),
 
+    // 429
+    AI_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS,
+            "AI 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요."),
+
     // 500
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다."),
     INVENTORY_UPDATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "재고 증감 처리에 실패했습니다."),
@@ -70,7 +74,11 @@ public enum ErrorCode {
 
     // 503
     AI_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
-            "AI 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.");
+            "AI 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요."),
+
+    // 504
+    AI_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT,
+            "AI 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

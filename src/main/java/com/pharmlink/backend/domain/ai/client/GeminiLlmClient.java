@@ -3,10 +3,15 @@ package com.pharmlink.backend.domain.ai.client;
 import tools.jackson.databind.JsonNode;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
+import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -15,17 +20,30 @@ import org.springframework.web.client.RestClient;
 @Component
 public class GeminiLlmClient {
 
+    private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(45);
+
     private final RestClient restClient;
     private final String model;
 
+    @Autowired
     public GeminiLlmClient(
             @Value("${ai.gemini.api-key}") String apiKey,
             @Value("${ai.gemini.model:gemini-3.5-flash-lite}") String model,
             @Value("${ai.gemini.base-url:https://generativelanguage.googleapis.com/v1beta}")
             String baseUrl
     ) {
+        this(apiKey, model, baseUrl, DEFAULT_READ_TIMEOUT);
+    }
+
+    // 테스트에서 짧은 타임아웃을 주입하기 위한 생성자
+    GeminiLlmClient(
+            String apiKey,
+            String model,
+            String baseUrl,
+            Duration readTimeout
+    ) {
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
-        factory.setReadTimeout(Duration.ofSeconds(45));
+        factory.setReadTimeout(readTimeout);
 
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
@@ -70,23 +88,7 @@ public class GeminiLlmClient {
                 )
         );
 
-        JsonNode response;
-
-        try {
-            response = restClient.post()
-                    .uri("/models/{model}:generateContent", model)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(JsonNode.class);
-        } catch (RestClientException e) {
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
-
-        if (response == null) {
-            throw new BusinessException(
-                    ErrorCode.AI_SERVICE_UNAVAILABLE
-            );
-        }
+        JsonNode response = postGenerateContent(requestBody);
 
         JsonNode parts = response.path("candidates")
                 .path(0)
@@ -199,21 +201,7 @@ public class GeminiLlmClient {
                 )
         );
 
-        JsonNode response;
-
-        try {
-            response = restClient.post()
-                    .uri("/models/{model}:generateContent", model)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(JsonNode.class);
-        } catch (RestClientException e) {
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
-
-        if (response == null) {
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
+        JsonNode response = postGenerateContent(requestBody);
 
         JsonNode content = response.path("candidates")
                 .path(0)
@@ -292,21 +280,7 @@ public class GeminiLlmClient {
                 )
         );
 
-        JsonNode response;
-
-        try {
-            response = restClient.post()
-                    .uri("/models/{model}:generateContent", model)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(JsonNode.class);
-        } catch (RestClientException e) {
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
-
-        if (response == null) {
-            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
-        }
+        JsonNode response = postGenerateContent(requestBody);
 
         JsonNode parts = response.path("candidates")
                 .path(0)
@@ -331,4 +305,57 @@ public class GeminiLlmClient {
         return answer.toString();
     }
 
+    // Gemini 호출 공통 처리 : HTTP 상태와 예외 종류에 따라 429/503/504로 나눈다.
+    private JsonNode postGenerateContent(Map<String, Object> requestBody) {
+        JsonNode response;
+
+        try {
+            response = restClient.post()
+                    .uri("/models/{model}:generateContent", model)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (HttpStatusCodeException e) {
+            throw new BusinessException(mapStatus(e.getStatusCode().value()));
+        } catch (RestClientException e) {
+            throw new BusinessException(
+                    isTimeout(e)
+                            ? ErrorCode.AI_TIMEOUT
+                            : ErrorCode.AI_SERVICE_UNAVAILABLE
+            );
+        }
+
+        if (response == null) {
+            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
+        }
+
+        return response;
+    }
+
+    static ErrorCode mapStatus(int status) {
+        if (status == 429) {
+            return ErrorCode.AI_RATE_LIMITED;
+        }
+
+        if (status == 504) {
+            return ErrorCode.AI_TIMEOUT;
+        }
+
+        return ErrorCode.AI_SERVICE_UNAVAILABLE;
+    }
+
+    static boolean isTimeout(Throwable e) {
+        Throwable cause = e;
+
+        while (cause != null) {
+            if (cause instanceof HttpTimeoutException
+                    || cause instanceof SocketTimeoutException
+                    || cause instanceof TimeoutException) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+
+        return false;
+    }
 }
