@@ -13,6 +13,10 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,6 +57,10 @@ class AiChatServiceTest {
                 "PharmLink는 제약 유통 ERP입니다.",
                 response.answer()
         );
+
+        assertTrue(response.sources().isEmpty());
+        assertNull(response.queryContext());
+        assertNotNull(response.generatedAt());
 
         verify(inventoryTool, never())
                 .getLowStockItems(any(), any());
@@ -112,6 +120,13 @@ class AiChatServiceTest {
                 "1번 창고에 조회된 재고 부족 상품이 없습니다.",
                 response.answer()
         );
+
+        assertEquals(1, response.sources().size());
+        assertEquals("get_low_stock_items", response.sources().get(0).type());
+        assertEquals("get_low_stock_items", response.queryContext().functionName());
+        assertEquals(1L, response.queryContext().warehouseId());
+        assertEquals(0L, response.queryContext().totalCount());
+        assertFalse(response.queryContext().hasNext());
 
         verify(inventoryTool).getLowStockItems(1L, 1);
         verify(client).generateFunctionAnswer(
@@ -218,6 +233,11 @@ class AiChatServiceTest {
                 "1번 창고에 해당 상품의 재고가 없습니다.",
                 response.answer()
         );
+
+        assertEquals("get_inventory_items", response.sources().get(0).type());
+        assertEquals("해열진통제", response.queryContext().keyword());
+        assertEquals(1L, response.queryContext().warehouseId());
+        assertEquals(0L, response.queryContext().totalCount());
 
         verify(inventoryTool).getInventoryItems("해열진통제", 1L, 1);
         verify(client).generateFunctionAnswer(

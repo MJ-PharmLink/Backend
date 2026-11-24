@@ -3,6 +3,8 @@ package com.pharmlink.backend.domain.ai.service;
 import com.pharmlink.backend.domain.ai.client.GeminiLlmClient;
 import com.pharmlink.backend.domain.ai.dto.AiChatRequest;
 import com.pharmlink.backend.domain.ai.dto.AiChatResponse;
+import com.pharmlink.backend.domain.ai.dto.AiQueryContext;
+import com.pharmlink.backend.domain.ai.dto.AiSource;
 import com.pharmlink.backend.domain.ai.tool.AiInventoryTool;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
@@ -55,10 +57,7 @@ public class AiChatService {
                 throw aiServiceError();
             }
 
-            return new AiChatResponse(
-                    generalAnswer.toString(),
-                    "GENERAL"
-            );
+            return AiChatResponse.general(generalAnswer.toString());
         }
 
         String functionName = selectedFunction.path("name").asText();
@@ -87,7 +86,24 @@ public class AiChatService {
                     result
             );
 
-            return new AiChatResponse(answer, "LOW_STOCK");
+            return AiChatResponse.ofQuery(
+                    answer,
+                    "LOW_STOCK",
+                    new AiSource(
+                            LOW_STOCK_FUNCTION,
+                            "부족 재고 (" + warehouseLabel(warehouseId) + ")",
+                            result.items()
+                    ),
+                    AiQueryContext.of(
+                            LOW_STOCK_FUNCTION,
+                            null,
+                            warehouseId,
+                            result.page(),
+                            result.totalCount(),
+                            result.totalPages(),
+                            result.hasNext()
+                    )
+            );
         }
 
         String keyword = readKeyword(args.path("keyword"));
@@ -102,7 +118,35 @@ public class AiChatService {
                 result
         );
 
-        return new AiChatResponse(answer, "INVENTORY");
+        return AiChatResponse.ofQuery(
+                answer,
+                "INVENTORY",
+                new AiSource(
+                        INVENTORY_FUNCTION,
+                        inventoryTitle(keyword, warehouseId),
+                        result.items()
+                ),
+                AiQueryContext.of(
+                        INVENTORY_FUNCTION,
+                        keyword,
+                        warehouseId,
+                        result.page(),
+                        result.totalCount(),
+                        result.totalPages(),
+                        result.hasNext()
+                )
+        );
+    }
+
+    private String warehouseLabel(Long warehouseId) {
+        return warehouseId == null ? "전체 창고" : "창고 " + warehouseId;
+    }
+
+    private String inventoryTitle(String keyword, Long warehouseId) {
+        String label = warehouseLabel(warehouseId);
+        return keyword == null
+                ? "재고 조회 (" + label + ")"
+                : "재고 조회 (" + label + ", 검색어: " + keyword + ")";
     }
 
     private String readKeyword(JsonNode value) {
