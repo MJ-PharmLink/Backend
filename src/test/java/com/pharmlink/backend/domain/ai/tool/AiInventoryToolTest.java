@@ -103,4 +103,27 @@ class AiInventoryToolTest {
 
         verify(dashboardService).getLowStockItems(null, 1, 10);
     }
+
+    @Test
+    void unauthenticatedLowStockReturnsUnauthorizedNotForbidden() {
+        SecurityContextHolder.clearContext();
+
+        DashboardService dashboardService = mock(DashboardService.class);
+        AiInventoryTool tool = new AiInventoryTool(
+                dashboardService,
+                mock(InventoryQueryService.class)
+        );
+
+        com.pharmlink.backend.global.exception.BusinessException exception =
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        com.pharmlink.backend.global.exception.BusinessException.class,
+                        () -> tool.getLowStockItems(null, 1)
+                );
+
+        assertEquals(
+                com.pharmlink.backend.global.exception.ErrorCode.UNAUTHORIZED,
+                exception.getErrorCode()
+        );
+        org.mockito.Mockito.verifyNoInteractions(dashboardService);
+    }
 }

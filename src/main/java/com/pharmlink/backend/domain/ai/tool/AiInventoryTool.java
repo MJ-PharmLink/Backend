@@ -9,9 +9,6 @@ import com.pharmlink.backend.global.exception.ErrorCode;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -24,18 +21,8 @@ public class AiInventoryTool {
     private final DashboardService dashboardService;
     private final InventoryQueryService inventoryQueryService;
 
-    @PreAuthorize("isAuthenticated()")
     public LowStockResult getLowStockItems(Long warehouseId, Integer page) {
-        Authentication authentication =
-                SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null
-                || !authentication.isAuthenticated()
-                || "anonymousUser".equals(authentication.getPrincipal())) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "인증이 필요합니다."
-            );
-        }
+        AiAuthorization.requireAuthenticated();
 
         int safePage = page == null ? 1 : Math.max(1, Math.min(page, MAX_PAGE));
 
@@ -52,22 +39,12 @@ public class AiInventoryTool {
     }
 
 
-    @PreAuthorize("isAuthenticated()")
     public InventorySearchResult getInventoryItems(
             String keyword,
             Long warehouseId,
             Integer page
     ) {
-        Authentication authentication =
-                SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null
-                || !authentication.isAuthenticated()
-                || "anonymousUser".equals(authentication.getPrincipal())) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "인증이 필요합니다."
-            );
-        }
+        AiAuthorization.requireAuthenticated();
 
         if (warehouseId != null && warehouseId < 1) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR);
