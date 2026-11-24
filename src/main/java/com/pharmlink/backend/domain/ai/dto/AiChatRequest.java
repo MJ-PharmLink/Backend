@@ -11,9 +11,8 @@ public record AiChatRequest(
         String message,
 
         // 선택 : 최근 대화 최대 10개 (오래된 것 → 최신 순)
-        @Valid
         @Size(max = 10, message = "이전 대화는 최대 10개까지 보낼 수 있습니다.")
-        List<AiChatHistory> history
+        List<@Valid AiChatHistory> history
 ) {
 
     public AiChatRequest {

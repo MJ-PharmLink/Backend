@@ -14,12 +14,14 @@ import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+@Slf4j
 @Component
 public class GeminiLlmClient {
 
@@ -53,6 +55,10 @@ public class GeminiLlmClient {
         factory.setReadTimeout(readTimeout);
 
         this.apiKeyConfigured = apiKey != null && !apiKey.isBlank();
+
+        if (!apiKeyConfigured) {
+            log.warn("Gemini API 키가 없습니다 : 챗봇 API는 503을 돌려줍니다. 로컬은 application-secret.yml 의 ai.gemini.api-key, 운영은 환경변수 GEMINI_API_KEY 를 확인하세요.");
+        }
 
         RestClient.Builder builder = RestClient.builder()
                 .baseUrl(baseUrl)
@@ -398,13 +404,14 @@ public class GeminiLlmClient {
                     .retrieve()
                     .body(JsonNode.class);
         } catch (HttpStatusCodeException e) {
-            throw new BusinessException(mapStatus(e.getStatusCode().value()));
+            // 운영 원인 추적용 : Gemini 상태 코드만 남긴다 (요청 본문·키는 남기지 않음)
+            ErrorCode code = mapStatus(e.getStatusCode().value());
+            log.warn("Gemini 호출 실패 : HTTP {} → {}", e.getStatusCode().value(), code);
+            throw new BusinessException(code);
         } catch (RestClientException e) {
-            throw new BusinessException(
-                    isTimeout(e)
-                            ? ErrorCode.AI_TIMEOUT
-                            : ErrorCode.AI_SERVICE_UNAVAILABLE
-            );
+            ErrorCode code = isTimeout(e) ? ErrorCode.AI_TIMEOUT : ErrorCode.AI_SERVICE_UNAVAILABLE;
+            log.warn("Gemini 호출 실패 : {} → {}", e.getClass().getSimpleName(), code);
+            throw new BusinessException(code);
         }
 
         if (response == null) {

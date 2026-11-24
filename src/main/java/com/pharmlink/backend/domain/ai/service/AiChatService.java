@@ -181,7 +181,7 @@ public class AiChatService {
                 "EXPIRY",
                 new AiSource(
                         EXPIRY_FUNCTION,
-                        expiryTitle(result, warehouseId),
+                        expiryTitle(),
                         result.items()
                 ),
                 new AiQueryContext(
@@ -198,7 +198,7 @@ public class AiChatService {
         );
     }
 
-    private String expiryTitle(AiExpiryTool.ExpiringResult result, Long warehouseId) {
+    private String expiryTitle() {
         return "유통기한 임박 재고";
     }
 
