@@ -5,6 +5,7 @@ import com.pharmlink.backend.domain.ai.dto.AiChatRequest;
 import com.pharmlink.backend.domain.ai.dto.AiChatResponse;
 import com.pharmlink.backend.domain.ai.dto.AiQueryContext;
 import com.pharmlink.backend.domain.ai.dto.AiSource;
+import com.pharmlink.backend.domain.ai.tool.AiExpiryTool;
 import com.pharmlink.backend.domain.ai.tool.AiInventoryTool;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
@@ -18,9 +19,11 @@ public class AiChatService {
 
     private static final String LOW_STOCK_FUNCTION = "get_low_stock_items";
     private static final String INVENTORY_FUNCTION = "get_inventory_items";
+    private static final String EXPIRY_FUNCTION = "get_expiring_inventory_items";
 
     private final GeminiLlmClient geminiLlmClient;
     private final AiInventoryTool aiInventoryTool;
+    private final AiExpiryTool aiExpiryTool;
 
     public AiChatResponse chat(AiChatRequest request) {
         JsonNode modelContent =
@@ -63,7 +66,8 @@ public class AiChatService {
         String functionName = selectedFunction.path("name").asText();
 
         if (!LOW_STOCK_FUNCTION.equals(functionName)
-                && !INVENTORY_FUNCTION.equals(functionName)) {
+                && !INVENTORY_FUNCTION.equals(functionName)
+                && !EXPIRY_FUNCTION.equals(functionName)) {
             throw aiServiceError();
         }
 
@@ -75,6 +79,10 @@ public class AiChatService {
 
         Long warehouseId = readWarehouseId(args.path("warehouse_id"));
         Integer page = readPage(args.path("page"));
+
+        if (EXPIRY_FUNCTION.equals(functionName)) {
+            return answerExpiry(request, modelContent, args, warehouseId, page);
+        }
 
         if (LOW_STOCK_FUNCTION.equals(functionName)) {
             AiInventoryTool.LowStockResult result =
@@ -136,6 +144,107 @@ public class AiChatService {
                         result.hasNext()
                 )
         );
+    }
+
+    private AiChatResponse answerExpiry(
+            AiChatRequest request,
+            JsonNode modelContent,
+            JsonNode args,
+            Long warehouseId,
+            Integer page
+    ) {
+        Integer days = readDays(args.path("days"));
+        String expiryStatus = readExpiryStatus(args.path("expiry_status"));
+
+        AiExpiryTool.ExpiringResult result =
+                aiExpiryTool.getExpiringInventoryItems(
+                        days,
+                        expiryStatus,
+                        warehouseId,
+                        page
+                );
+
+        String answer = geminiLlmClient.generateFunctionAnswer(
+                request.message(),
+                modelContent,
+                EXPIRY_FUNCTION,
+                result
+        );
+
+        return AiChatResponse.ofQuery(
+                answer,
+                "EXPIRY",
+                new AiSource(
+                        EXPIRY_FUNCTION,
+                        expiryTitle(result, warehouseId),
+                        result.items()
+                ),
+                new AiQueryContext(
+                        EXPIRY_FUNCTION,
+                        null,
+                        warehouseId,
+                        result.page(),
+                        result.totalCount(),
+                        result.totalPages(),
+                        result.hasNext(),
+                        result.days(),
+                        result.expiryStatus()
+                )
+        );
+    }
+
+    private String expiryTitle(AiExpiryTool.ExpiringResult result, Long warehouseId) {
+        String kind;
+
+        if ("EXPIRED".equals(result.expiryStatus())) {
+            kind = "유통기한 만료";
+        } else if ("EXPIRING_SOON".equals(result.expiryStatus())) {
+            kind = "유통기한 " + result.days() + "일 이내 임박";
+        } else {
+            kind = "유통기한 만료·" + result.days() + "일 이내 임박";
+        }
+
+        return kind + " (" + warehouseLabel(warehouseId) + ")";
+    }
+
+    private Integer readDays(JsonNode value) {
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+
+        if (!value.isIntegralNumber() || !value.canConvertToInt()) {
+            throw aiServiceError();
+        }
+
+        int days = value.intValue();
+
+        if (days < 0) {
+            throw aiServiceError();
+        }
+
+        return Math.min(days, AiExpiryTool.MAX_DAYS);
+    }
+
+    private String readExpiryStatus(JsonNode value) {
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+
+        if (!value.isTextual()) {
+            throw aiServiceError();
+        }
+
+        String status = value.asText().trim().toUpperCase();
+
+        if (status.isBlank() || "ALL".equals(status)) {
+            return null;
+        }
+
+        if (!"EXPIRED".equals(status) && !"EXPIRING_SOON".equals(status)) {
+            throw aiServiceError();
+        }
+
+        return status;
     }
 
     private String warehouseLabel(Long warehouseId) {

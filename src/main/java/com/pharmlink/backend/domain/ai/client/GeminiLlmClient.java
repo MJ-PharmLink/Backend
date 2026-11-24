@@ -128,6 +128,10 @@ public class GeminiLlmClient {
                 get_inventory_items 함수를 사용하세요.
                 상품명 또는 상품코드는 keyword 인자로 전달하세요.
                 부족 재고만 물으면 get_low_stock_items를 사용하세요.
+                유통기한이 지났거나 곧 끝나는 재고·LOT를 물으면
+                get_expiring_inventory_items 함수를 사용하세요.
+                "N일 이내"는 days 인자로, 만료만 물으면 expiry_status를 EXPIRED로,
+                임박만 물으면 EXPIRING_SOON으로 전달하세요. 기간이 없으면 생략하세요.
                 재고 변경, 상품 삭제 등 데이터 변경은 수행할 수 없습니다.
                 """;
 
@@ -193,7 +197,8 @@ public class GeminiLlmClient {
                 ),
                 "tools", List.of(
                         Map.of(
-                                "functionDeclarations", List.of(declaration, inventoryDeclaration)
+                                "functionDeclarations",
+                                List.of(declaration, inventoryDeclaration, expiryDeclaration())
                         )
                 ),
                 "generationConfig", Map.of(
@@ -303,6 +308,40 @@ public class GeminiLlmClient {
         }
 
         return answer.toString();
+    }
+
+    // 유통기한 만료·임박 LOT 조회 (기존 GET /api/v1/inventories/expiring 과 같은 조건)
+    static Map<String, Object> expiryDeclaration() {
+        return Map.of(
+                "name", "get_expiring_inventory_items",
+                "description",
+                "실제 ERP에서 유통기한이 지났거나 곧 끝나는 LOT 재고를 조회합니다. "
+                + "유통기한 만료, 유통기한 임박, N일 안에 유통기한이 끝나는 재고를 물을 때 사용합니다.",
+                "parameters", Map.of(
+                        "type", "OBJECT",
+                        "properties", Map.of(
+                                "days", Map.of(
+                                        "type", "INTEGER",
+                                        "description",
+                                        "오늘부터 며칠 이내에 유통기한이 끝나는지. 기본값 90, 최대 365"
+                                ),
+                                "expiry_status", Map.of(
+                                        "type", "STRING",
+                                        "enum", List.of("EXPIRED", "EXPIRING_SOON"),
+                                        "description",
+                                        "EXPIRED: 이미 만료, EXPIRING_SOON: 임박. 둘 다면 생략"
+                                ),
+                                "warehouse_id", Map.of(
+                                        "type", "INTEGER",
+                                        "description", "조회할 창고 ID. 없으면 생략"
+                                ),
+                                "page", Map.of(
+                                        "type", "INTEGER",
+                                        "description", "1부터 시작하는 페이지 번호. 기본값 1"
+                                )
+                        )
+                )
+        );
     }
 
     // Gemini 호출 공통 처리 : HTTP 상태와 예외 종류에 따라 429/503/504로 나눈다.

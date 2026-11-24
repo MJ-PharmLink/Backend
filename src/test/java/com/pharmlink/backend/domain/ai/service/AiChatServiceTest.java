@@ -3,6 +3,7 @@ package com.pharmlink.backend.domain.ai.service;
 import com.pharmlink.backend.domain.ai.client.GeminiLlmClient;
 import com.pharmlink.backend.domain.ai.dto.AiChatRequest;
 import com.pharmlink.backend.domain.ai.dto.AiChatResponse;
+import com.pharmlink.backend.domain.ai.tool.AiExpiryTool;
 import com.pharmlink.backend.domain.ai.tool.AiInventoryTool;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
@@ -23,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AiChatServiceTest {
@@ -48,7 +50,7 @@ class AiChatServiceTest {
         when(client.requestFunctionDecision(question))
                 .thenReturn(modelContent);
 
-        AiChatService service = new AiChatService(client, inventoryTool);
+        AiChatService service = new AiChatService(client, inventoryTool, mock(AiExpiryTool.class));
         AiChatResponse response =
                 service.chat(new AiChatRequest(question));
 
@@ -111,7 +113,7 @@ class AiChatServiceTest {
                 eq(result)
         )).thenReturn("1번 창고에 조회된 재고 부족 상품이 없습니다.");
 
-        AiChatService service = new AiChatService(client, inventoryTool);
+        AiChatService service = new AiChatService(client, inventoryTool, mock(AiExpiryTool.class));
         AiChatResponse response =
                 service.chat(new AiChatRequest(question));
 
@@ -160,7 +162,7 @@ class AiChatServiceTest {
         when(client.requestFunctionDecision(question))
                 .thenReturn(modelContent);
 
-        AiChatService service = new AiChatService(client, inventoryTool);
+        AiChatService service = new AiChatService(client, inventoryTool, mock(AiExpiryTool.class));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -223,7 +225,7 @@ class AiChatServiceTest {
                 result
         )).thenReturn("1번 창고에 해당 상품의 재고가 없습니다.");
 
-        AiChatService service = new AiChatService(client, inventoryTool);
+        AiChatService service = new AiChatService(client, inventoryTool, mock(AiExpiryTool.class));
 
         AiChatResponse response =
                 service.chat(new AiChatRequest(question));
@@ -248,4 +250,82 @@ class AiChatServiceTest {
         );
     }
 
+    @Test
+    void expiryQuestionExecutesExpiryTool() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
+        AiInventoryTool inventoryTool = mock(AiInventoryTool.class);
+        AiExpiryTool expiryTool = mock(AiExpiryTool.class);
+
+        String question = "30일 안에 유통기한 끝나는 재고 알려줘";
+
+        JsonNode modelContent = mapper.readTree("""
+                {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "get_expiring_inventory_items",
+                        "args": {"days": 30, "expiry_status": "EXPIRING_SOON"}
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        AiExpiryTool.ExpiringResult result = new AiExpiryTool.ExpiringResult(
+                List.of(), 0, 1, 0, false, 30, "EXPIRING_SOON"
+        );
+
+        when(client.requestFunctionDecision(question)).thenReturn(modelContent);
+        when(expiryTool.getExpiringInventoryItems(30, "EXPIRING_SOON", null, 1))
+                .thenReturn(result);
+        when(client.generateFunctionAnswer(
+                question,
+                modelContent,
+                "get_expiring_inventory_items",
+                result
+        )).thenReturn("30일 안에 유통기한이 끝나는 재고가 없습니다.");
+
+        AiChatResponse response = new AiChatService(client, inventoryTool, expiryTool)
+                .chat(new AiChatRequest(question));
+
+        assertEquals("EXPIRY", response.intent());
+        assertEquals("get_expiring_inventory_items", response.sources().get(0).type());
+        assertEquals("get_expiring_inventory_items", response.queryContext().functionName());
+        assertEquals(30, response.queryContext().days());
+        assertEquals("EXPIRING_SOON", response.queryContext().expiryStatus());
+        assertEquals(0L, response.queryContext().totalCount());
+        verifyNoInteractions(inventoryTool);
+    }
+
+    @Test
+    void expiryForbiddenIsNotSwallowed() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
+        AiExpiryTool expiryTool = mock(AiExpiryTool.class);
+
+        String question = "유통기한 만료 재고 알려줘";
+
+        JsonNode modelContent = mapper.readTree("""
+                {
+                  "role": "model",
+                  "parts": [
+                    {"functionCall": {"name": "get_expiring_inventory_items",
+                                      "args": {"expiry_status": "EXPIRED"}}}
+                  ]
+                }
+                """);
+
+        when(client.requestFunctionDecision(question)).thenReturn(modelContent);
+        when(expiryTool.getExpiringInventoryItems(null, "EXPIRED", null, 1))
+                .thenThrow(new BusinessException(ErrorCode.FORBIDDEN));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> new AiChatService(client, mock(AiInventoryTool.class), expiryTool)
+                        .chat(new AiChatRequest(question))
+        );
+
+        assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
+        verify(client, never()).generateFunctionAnswer(any(), any(), any(), any());
+    }
 }
