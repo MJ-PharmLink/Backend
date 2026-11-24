@@ -1,0 +1,92 @@
+name: Backend Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포 중에 다음 배포가 끼어들지 않게 차례로 실행
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: pharmlink-prod-backend
+  ECS_CLUSTER: pharmlink-prod-cluster
+  ECS_SERVICE: pharmlink-prod-backend
+  ECS_TASK_FAMILY: pharmlink-prod-backend
+  CONTAINER_NAME: backend
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 태그 : 커밋 SHA 7자리. ECR이 같은 태그 덮어쓰기를 막아서 다시 실행할 때 이미 있으면 빌드를 건너뛴다
+      - id: image
+        name: 이미지 태그 확인
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          echo "uri=${REGISTRY}/${ECR_REPOSITORY}:${TAG}" >> "$GITHUB_OUTPUT"
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$TAG" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # provenance를 끄지 않으면 태그 없는 이미지가 같이 올라간다
+      - name: 이미지 빌드·push
+        if: steps.image.outputs.exists == 'false'
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          docker build --provenance=false --platform linux/amd64 -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # 환경변수·비밀값은 Terraform이 만든 최신 task definition 그대로, 이미지만 바꾼다
+      # 태그는 받지 않는다 (태그를 같이 등록하면 ecs:TagResource 권한이 더 필요하다)
+      - name: 최신 task definition 받기
+        run: aws ecs describe-task-definition --task-definition "$ECS_TASK_FAMILY" --query taskDefinition > task-definition.json
+
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.image.outputs.uri }}
+
+      # 새 task가 헬스체크를 넘지 못하면 ECS가 직전 버전으로 되돌리고 이 단계가 실패한다
+      - name: ECS 서비스 교체
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
