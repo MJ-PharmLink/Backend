@@ -328,4 +328,29 @@ class AiChatServiceTest {
         assertEquals(ErrorCode.FORBIDDEN, exception.getErrorCode());
         verify(client, never()).generateFunctionAnswer(any(), any(), any(), any());
     }
+
+    @Test
+    void historyIsPassedToFunctionDecision() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
+        List<com.pharmlink.backend.domain.ai.dto.AiChatHistory> history = List.of(
+                new com.pharmlink.backend.domain.ai.dto.AiChatHistory("user", "ERP가 뭐야?"),
+                new com.pharmlink.backend.domain.ai.dto.AiChatHistory("assistant", "제약 유통 ERP입니다.")
+        );
+
+        JsonNode modelContent = mapper.readTree("""
+                {"role": "model", "parts": [{"text": "네, 이어서 설명드릴게요."}]}
+                """);
+
+        when(client.requestFunctionDecision("더 자세히", history)).thenReturn(modelContent);
+
+        AiChatResponse response = new AiChatService(
+                client,
+                mock(AiInventoryTool.class),
+                mock(AiExpiryTool.class)
+        ).chat(new AiChatRequest("더 자세히", history));
+
+        assertEquals("GENERAL", response.intent());
+        verify(client).requestFunctionDecision("더 자세히", history);
+        verify(client, never()).requestFunctionDecision("더 자세히");
+    }
 }

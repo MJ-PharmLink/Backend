@@ -1,5 +1,6 @@
 package com.pharmlink.backend.domain.ai.client;
 
+import com.pharmlink.backend.domain.ai.dto.AiChatHistory;
 import tools.jackson.databind.JsonNode;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
@@ -8,6 +9,7 @@ import org.springframework.web.client.RestClientException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 import java.util.List;
 import java.util.Map;
@@ -116,6 +118,13 @@ public class GeminiLlmClient {
     }
 
     public JsonNode requestFunctionDecision(String message) {
+        return requestFunctionDecision(message, List.of());
+    }
+
+    public JsonNode requestFunctionDecision(
+            String message,
+            List<AiChatHistory> history
+    ) {
         String systemPrompt = """
                 당신은 PharmLink 제약 유통 ERP의 AI 도우미입니다.
                 재고 부족 상품의 실제 데이터가 필요한 질문에는
@@ -189,12 +198,7 @@ public class GeminiLlmClient {
                 "systemInstruction", Map.of(
                         "parts", List.of(Map.of("text", systemPrompt))
                 ),
-                "contents", List.of(
-                        Map.of(
-                                "role", "user",
-                                "parts", List.of(Map.of("text", message))
-                        )
-                ),
+                "contents", toContents(history, message),
                 "tools", List.of(
                         Map.of(
                                 "functionDeclarations",
@@ -308,6 +312,30 @@ public class GeminiLlmClient {
         }
 
         return answer.toString();
+    }
+
+    // Gemini contents : 이전 대화(assistant → model) + 현재 질문
+    static List<Map<String, Object>> toContents(
+            List<AiChatHistory> history,
+            String message
+    ) {
+        List<Map<String, Object>> contents = new ArrayList<>();
+
+        if (history != null) {
+            for (AiChatHistory turn : history) {
+                contents.add(Map.of(
+                        "role", "assistant".equals(turn.role()) ? "model" : "user",
+                        "parts", List.of(Map.of("text", turn.content()))
+                ));
+            }
+        }
+
+        contents.add(Map.of(
+                "role", "user",
+                "parts", List.of(Map.of("text", message))
+        ));
+
+        return contents;
     }
 
     // 유통기한 만료·임박 LOT 조회 (기존 GET /api/v1/inventories/expiring 과 같은 조건)

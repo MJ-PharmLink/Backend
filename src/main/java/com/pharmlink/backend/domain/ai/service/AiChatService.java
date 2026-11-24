@@ -26,8 +26,13 @@ public class AiChatService {
     private final AiExpiryTool aiExpiryTool;
 
     public AiChatResponse chat(AiChatRequest request) {
-        JsonNode modelContent =
-                geminiLlmClient.requestFunctionDecision(request.message());
+        // history가 없으면 기존 흐름 그대로, 있으면 이전 대화를 함께 보내 의도를 판단한다.
+        JsonNode modelContent = request.history().isEmpty()
+                ? geminiLlmClient.requestFunctionDecision(request.message())
+                : geminiLlmClient.requestFunctionDecision(
+                        request.message(),
+                        request.history()
+                );
 
         JsonNode parts = modelContent.path("parts");
 
