@@ -1,6 +1,7 @@
 package com.pharmlink.backend.domain.ai.service;
 
 import com.pharmlink.backend.domain.ai.client.GeminiLlmClient;
+import com.pharmlink.backend.domain.dashboard.dto.LowStockItemResponse;
 import com.pharmlink.backend.domain.ai.dto.AiChatRequest;
 import com.pharmlink.backend.domain.ai.dto.AiChatResponse;
 import com.pharmlink.backend.domain.ai.dto.AiQueryContext;
@@ -28,7 +29,14 @@ public class AiChatService {
     private final AiExpiryTool aiExpiryTool;
 
     public AiChatResponse chat(AiChatRequest request) {
+        if (request.history().isEmpty()
+                && isDirectLowStockQuestion(request.message())) {
+            log.info("AI_STAGE: DIRECT_LOW_STOCK");
+            return answerDirectLowStock();
+        }
+
         // history가 없으면 기존 흐름 그대로, 있으면 이전 대화를 함께 보내 의도를 판단한다.
+        log.info("AI_STAGE: FUNCTION_DECISION_START");
         JsonNode modelContent = request.history().isEmpty()
                 ? geminiLlmClient.requestFunctionDecision(request.message())
                 : geminiLlmClient.requestFunctionDecision(
@@ -104,6 +112,7 @@ public class AiChatService {
             AiInventoryTool.LowStockResult result =
                     aiInventoryTool.getLowStockItems(warehouseId, page);
 
+            log.info("AI_STAGE: LOW_STOCK_ANSWER_START");
             String answer = geminiLlmClient.generateFunctionAnswer(
                     request.message(),
                     modelContent,
@@ -135,6 +144,7 @@ public class AiChatService {
         AiInventoryTool.InventorySearchResult result =
                 aiInventoryTool.getInventoryItems(keyword, warehouseId, page);
 
+        log.info("AI_STAGE: INVENTORY_ANSWER_START");
         String answer = geminiLlmClient.generateFunctionAnswer(
                 request.message(),
                 modelContent,
@@ -162,6 +172,64 @@ public class AiChatService {
         );
     }
 
+    private boolean isDirectLowStockQuestion(String message) {
+        String normalized = message.trim().replaceAll("\\s+", " ");
+
+        return normalized.matches(
+                "^(발주가 시급한 약 순서대로 알려줄래[?？]?|"
+                + "지금 재고가 부족한 상품 알려줘[?？]?|"
+                + "현재 재고가 부족한 상품 알려줘[?？]?)$"
+        );
+    }
+
+    private AiChatResponse answerDirectLowStock() {
+        AiInventoryTool.LowStockResult result =
+                aiInventoryTool.getLowStockItems(null, 1);
+
+        StringBuilder answer = new StringBuilder();
+
+        if (result.items().isEmpty()) {
+            answer.append("현재 재고가 부족한 상품이 없습니다.");
+        } else {
+            answer.append("현재 부족 재고 상품 목록입니다.\\n");
+
+            for (LowStockItemResponse item : result.items()) {
+                answer.append("- ")
+                        .append(item.itemName())
+                        .append(": 현재 ")
+                        .append(item.quantity())
+                        .append("개, 안전재고 ")
+                        .append(item.safetyStock())
+                        .append("개, 부족 ")
+                        .append(item.shortageQuantity())
+                        .append("개\\n");
+            }
+
+            if (result.hasNext()) {
+                answer.append("추가 상품은 다음 페이지에서 확인할 수 있습니다.");
+            }
+        }
+
+        return AiChatResponse.ofQuery(
+                answer.toString(),
+                "LOW_STOCK",
+                new AiSource(
+                        LOW_STOCK_FUNCTION,
+                        lowStockTitle(null),
+                        result.items()
+                ),
+                AiQueryContext.of(
+                        LOW_STOCK_FUNCTION,
+                        null,
+                        null,
+                        result.page(),
+                        result.totalCount(),
+                        result.totalPages(),
+                        result.hasNext()
+                )
+        );
+    }
+
     private AiChatResponse answerExpiry(
             AiChatRequest request,
             JsonNode modelContent,
@@ -180,6 +248,7 @@ public class AiChatService {
                         page
                 );
 
+        log.info("AI_STAGE: EXPIRY_ANSWER_START");
         String answer = geminiLlmClient.generateFunctionAnswer(
                 request.message(),
                 modelContent,
