@@ -43,3 +43,10 @@ management:
 jwt:
   expiration: 3600000   # 1시간 (ms 단위)
   refresh-expiration: 1209600000   # refresh token 14일 (ms 단위)
+ai:
+  gemini:
+    # 키 : 로컬은 application-secret.yml 의 ai.gemini.api-key, 운영(ECS)은 SSM → 환경변수 GEMINI_API_KEY
+    # 키가 없어도 서버는 뜨고 챗봇 API만 503 AI_SERVICE_UNAVAILABLE 을 돌려준다.
+    api-key: ${GEMINI_API_KEY:}
+    # 호출당 읽기 제한 : CloudFront 30초 제한 안에 의도 판단, 답변 2번 호출이 끝나도록 12초
+    read-timeout: 12s
