@@ -10,9 +10,11 @@ import com.pharmlink.backend.domain.ai.tool.AiInventoryTool;
 import com.pharmlink.backend.global.exception.BusinessException;
 import com.pharmlink.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiChatService {
@@ -48,8 +50,17 @@ public class AiChatService {
 
             if (functionCall.isObject()) {
                 if (selectedFunction != null) {
-                    throw aiServiceError();
+                    log.warn(
+                            "Gemini 응답 해석: 복수 함수 호출 감지"
+                    );
+
+                    return AiChatResponse.general(
+                            "한 번에 한 가지씩 질문해 주세요. "
+                            + "현재는 재고 부족, 상품·창고별 재고, "
+                            + "유통기한 조회를 지원합니다."
+                    );
                 }
+
                 selectedFunction = functionCall;
             }
 

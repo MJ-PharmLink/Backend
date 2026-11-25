@@ -353,4 +353,52 @@ class AiChatServiceTest {
         verify(client).requestFunctionDecision("더 자세히", history);
         verify(client, never()).requestFunctionDecision("더 자세히");
     }
+
+    @Test
+    void multipleFunctionCallsReturnGuidance() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
+        AiInventoryTool inventoryTool = mock(AiInventoryTool.class);
+        AiExpiryTool expiryTool = mock(AiExpiryTool.class);
+
+        String question = "재고 부족 상품과 유통기한 임박 상품을 알려줘";
+
+        JsonNode modelContent = mapper.readTree("""
+                {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "get_low_stock_items",
+                        "args": {}
+                      }
+                    },
+                    {
+                      "functionCall": {
+                        "name": "get_expiring_inventory_items",
+                        "args": {}
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        when(client.requestFunctionDecision(question))
+                .thenReturn(modelContent);
+
+        AiChatResponse response = new AiChatService(
+                client,
+                inventoryTool,
+                expiryTool
+        ).chat(new AiChatRequest(question));
+
+        assertEquals("GENERAL", response.intent());
+        assertTrue(
+                response.answer().contains("한 번에 한 가지씩")
+        );
+        assertTrue(response.sources().isEmpty());
+        assertNull(response.queryContext());
+
+        verifyNoInteractions(inventoryTool, expiryTool);
+    }
+
 }
