@@ -401,4 +401,50 @@ class AiChatServiceTest {
         verifyNoInteractions(inventoryTool, expiryTool);
     }
 
+
+    @Test
+    void directLowStockQuestionBypassesGemini() {
+        GeminiLlmClient client = mock(GeminiLlmClient.class);
+        AiInventoryTool inventoryTool = mock(AiInventoryTool.class);
+        AiExpiryTool expiryTool = mock(AiExpiryTool.class);
+
+        String question = "발주가 시급한 약 순서대로 알려줄래?";
+
+        AiInventoryTool.LowStockResult result =
+                new AiInventoryTool.LowStockResult(
+                        List.of(
+                                new com.pharmlink.backend.domain.dashboard.dto.LowStockItemResponse(
+                                        1L, 1L, 1L,
+                                        "TEST-001",
+                                        "테스트 해열진통제 650mg",
+                                        7,
+                                        20
+                                )
+                        ),
+                        1,
+                        1,
+                        1,
+                        false
+                );
+
+        when(inventoryTool.getLowStockItems(null, 1))
+                .thenReturn(result);
+
+        AiChatService service =
+                new AiChatService(client, inventoryTool, expiryTool);
+
+        AiChatResponse response =
+                service.chat(new AiChatRequest(question));
+
+        assertEquals("LOW_STOCK", response.intent());
+        assertTrue(response.answer().contains("테스트 해열진통제 650mg"));
+        assertTrue(response.answer().contains("7개"));
+        assertTrue(response.answer().contains("20개"));
+        assertEquals(1, response.sources().size());
+        assertEquals(1L, response.queryContext().totalCount());
+
+        verify(inventoryTool).getLowStockItems(null, 1);
+        verifyNoInteractions(client, expiryTool);
+    }
+
 }
